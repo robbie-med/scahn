@@ -107,9 +107,18 @@ const SOLID = 'solid';
  * learner will expect to see.
  */
 const CLASSES = [
-  // Gallbladder before bladder: "gallbladder" contains "bladder".
-  [/gallbladder|galblaas|gallenweg/i, { label: 'Gallbladder', color: 0x6f8f3f, cap: 0x9fc45c, grey: 0.06, kind: LUMEN }],
-  [/bladder|blaas/i, { label: 'Bladder', color: 0xb0a24c, cap: 0xe0d179, grey: 0.05, kind: LUMEN }],
+  // Hollow viscera: lumen patterns first, and gallbladder before bladder, since
+  // "gallbladder" contains "bladder" and would otherwise be swallowed.
+  //
+  // The wall is echogenic and the cavity anechoic. Rendering the whole organ as
+  // fluid — which is what happened while these models shipped a single mesh —
+  // puts the bladder two grey levels from the background, so it reads as
+  // nothing rendered rather than as a large fluid-filled structure. The asset
+  // pipeline now derives the cavity by offsetting the wall inward.
+  [/(gallbladder|galblaas|gallenweg).*lumen/i, { label: 'Gallbladder lumen', color: 0x11161c, cap: 0x0a0d11, grey: 0.04, kind: LUMEN }],
+  [/(bladder|blaas).*lumen/i, { label: 'Bladder lumen', color: 0x11161c, cap: 0x0a0d11, grey: 0.03, kind: LUMEN }],
+  [/gallbladder|galblaas|gallenweg/i, { label: 'Gallbladder wall', color: 0x6f8f3f, cap: 0x9fc45c, grey: 0.60, kind: SOLID }],
+  [/bladder|blaas/i, { label: 'Bladder wall', color: 0xb0a24c, cap: 0xe0d179, grey: 0.64, kind: SOLID }],
   // Valves before heart: they are named `heart-valve-mitral` and would
   // otherwise be swallowed by the heart pattern. Leaflets are markedly
   // echogenic, and on a cardiac view they are the moving landmark a learner

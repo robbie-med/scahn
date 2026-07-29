@@ -140,6 +140,48 @@ def voxel_remesh(ob, voxel):
     bpy.ops.object.modifier_apply(modifier=mod.name)
 
 
+# Hollow viscera that arrive as a single closed mesh, with the wall thickness to
+# assume, in source units (mm).
+#
+# Spec section 5 asks for wall and lumen as separate watertight meshes so that
+# per-mesh capping yields an echogenic wall around an anechoic cavity by itself.
+# These models ship only the outer surface, so capping paints one solid disc: a
+# bladder rendered entirely as fluid is two grey levels away from "nothing
+# rendered", and its wall disappears. Deriving the lumen by shrinking the wall
+# inward is not invented anatomy — it is the same surface, offset.
+HOLLOW = {
+    'bladder': 2.0,
+    'gallbladder': 1.5,
+}
+
+
+def make_lumen(ob, thickness):
+    """Duplicate a hollow organ and shrink it inward to form its cavity."""
+    lumen = ob.copy()
+    lumen.data = ob.data.copy()
+    lumen.name = f'{ob.name}_lumen'
+    lumen.data.name = lumen.name
+    bpy.context.collection.objects.link(lumen)
+
+    bm = bmesh.new()
+    bm.from_mesh(lumen.data)
+    bm.normal_update()
+    for v in bm.verts:
+        v.co -= v.normal * thickness
+    # Shrinking a concave region can push faces through each other; dissolving
+    # the degenerate ones keeps the result closed.
+    bmesh.ops.dissolve_degenerate(bm, dist=WELD_DIST, edges=bm.edges)
+    bm.to_mesh(lumen.data)
+    lumen.data.update()
+    bm.free()
+
+    o, n, t, _, vol = mesh_stats(lumen)
+    if o or n or vol <= 0:
+        bpy.data.objects.remove(lumen, do_unlink=True)
+        return None
+    return lumen
+
+
 def dedupe(meshes):
     """
     Keep the anatomically placed copy of each duplicated mesh.
@@ -231,6 +273,21 @@ def main():
 
     log(f'summary: {clean} clean, {fixed} hole-filled, {remeshed} remeshed, '
         f'{declined} left as imported')
+
+    # Derive cavities for hollow viscera that shipped as a single surface.
+    for ob in list(keep):
+        low = ob.name.lower()
+        # Longest key first: 'bladder' is a substring of 'gallbladder', so a
+        # naive scan gives the gallbladder the bladder's wall thickness.
+        match = next((k for k in sorted(HOLLOW, key=len, reverse=True) if k in low), None)
+        if not match or 'lumen' in low:
+            continue
+        lumen = make_lumen(ob, HOLLOW[match])
+        if lumen:
+            log(f'{ob.name[:38]:40} + lumen @{HOLLOW[match]}mm '
+                f'({sum(len(p.vertices)-2 for p in lumen.data.polygons)} tris)')
+        else:
+            log(f'{ob.name[:38]:40} lumen FAILED (wall too thin or self-intersecting)')
 
     bpy.ops.export_scene.gltf(
         filepath=dst,

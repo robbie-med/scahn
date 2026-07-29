@@ -189,6 +189,14 @@ export const WINDOWS = Object.freeze({
   'apical-four-chamber': { u: 0.11, v: 0.78, spin: 60 * DEG, tilt: -25 * DEG },
   'ruq-morison': { u: 0.78, v: 0.54, spin: 90 * DEG, tilt: 0 },
   'luq-splenorenal': { u: 0.22, v: 0.58, spin: 90 * DEG, tilt: 0 },
-  'suprapubic': { u: 0.0, v: 0.14, spin: 0, tilt: -20 * DEG },
+  // v lowered from 0.14 and tilt removed. At the anterior midline with spin 0
+  // the scan plane is axial at the probe's height, and 0.14 put it at y=-0.216,
+  // the bladder's top edge (it spans -0.27 to -0.215), so the window grazed the
+  // bladder and returned nothing. 0.10 cuts through its centre.
+  //
+  // A real suprapubic view is angled caudally, but on this simplified cylinder
+  // a caudal tilt rotates the plane straight off the bladder rather than into
+  // the pelvis. That is a limitation of the torso shell, not of the window.
+  'suprapubic': { u: 0.0, v: 0.10, spin: 0, tilt: 0 },
   'aorta-transverse': { u: 0.0, v: 0.53, spin: 0, tilt: 0 },
 });
