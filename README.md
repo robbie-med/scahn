@@ -87,16 +87,27 @@ cross-room isolation, token-replay reconnect, coordinate conventions, stencil
 capping (capped myocardium with open chambers, no bleed), inverted-plane ghost
 pass, and 3D/2D laterality agreement.
 
+Anatomy models are selectable at runtime (Primitives / Abdomen / Liver-EUS).
+Imported meshes are repaired by the Blender pipeline before shipping — see
+`scripts/build-assets.sh`. The abdomen model's heart is replaced via a per-organ
+override with one that has genuine interior surfaces, so the cardiac chambers
+cap open rather than being invented.
+
 Known gaps:
 
-- **Real anatomy (P3) is blocked** — Blender is not installed on the build host.
+- **Window preset positions are first-pass.** They were tuned by measuring how
+  much target tissue each window returns, not by clinical review, and the
+  heart's placement in the thorax is a chosen position rather than a measured
+  one. Both want checking by someone who scans.
 - **Per-sensor RTT is not reported.** The DO uses `setWebSocketAutoResponse` for
   the heartbeat so it can hibernate; the auto-pong never wakes the DO, so it
   cannot time a round trip. The roster shows no latency figure.
 - **No per-IP room-creation cap.** Per-socket message rate, frame size, sensors
   per room and room TTL are all capped; per-IP creation limiting needs a
   Cloudflare rate-limiting binding.
-- Window preset positions are first-pass and want review from someone who scans.
+- **245 non-manifold edges** remain across the imported meshes, from Draco
+  position quantisation collapsing near-coincident vertices. Open edges — the
+  defect that actually breaks capping — are eliminated.
 
 ## Licensing and attribution
 

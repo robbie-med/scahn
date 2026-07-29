@@ -38,23 +38,26 @@ export const LAYER_2D = 1;
 const COPLANAR_NUDGE = 5e-5;
 
 /**
- * Ghost pass triangle budget, per mesh.
+ * Ghost pass cost.
  *
- * Mode 3 draws a second, transparent copy of every organ, and transparent
- * overdraw is fill-rate bound rather than vertex bound. On the imported abdomen
- * model that took a 12 ms frame to 67 ms — 15 fps, unusable — because 83% of
- * its triangles live in eight meshes: small bowel, large bowel, the heart and
- * the arterial and venous trees.
+ * Mode 3 draws a second, transparent copy of every organ. That was once 19 ms a
+ * frame against 6 ms for a plain cut, and the obvious diagnosis — too many
+ * triangles — was wrong. Ghosting all 226k triangles measured *faster* than
+ * ghosting a 66k subset, which is only possible if the pass is fragment bound.
  *
- * Those are also the meshes that read as visual noise when rendered as
- * translucent context, so excluding them costs almost nothing pedagogically and
- * buys back the frame. The teaching targets (liver, kidneys, spleen, pancreas,
- * gallbladder, bladder, uterus) are all far below this and keep their ghost.
+ * The whole cost was MeshStandardMaterial evaluating PBR lighting per fragment
+ * under heavy transparent overdraw. An unlit material brings the same geometry
+ * in at 6.5 ms, so there is no need to exclude any organ — and excluding them
+ * removed precisely the bowel, vessels and heart that make ghost mode useful as
+ * context.
+ *
+ * Unlit is also the better look: a ghost is faint background context and should
+ * not compete with the shaded opaque half for attention.
+ *
+ * (Beware measuring this with performance.now() alone. WebGL is pipelined, so
+ * timing render calls captures submit cost, not frame cost, and produces
+ * numbers that swing by 3x between runs. Force a gl.finish().)
  */
-const GHOST_TRI_BUDGET = 8000;
-
-const triangleCount = (geom) =>
-  (geom.index ? geom.index.count : geom.attributes.position.count) / 3;
 
 export class CappedOrgan {
   /**
@@ -138,20 +141,21 @@ export class CappedOrgan {
     // the kept half too, double-compositing it and muddying the cut face.
     this.ghost = new THREE.Mesh(
       organ.geometry,
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshBasicMaterial({
         color: organ.color,
-        roughness: 0.9,
         transparent: true,
         opacity: 0.25,
         depthWrite: false,
-        side: THREE.DoubleSide,
+        // Front faces only. Every mesh is watertight after the asset pipeline,
+        // so back faces would just double the fragment count and muddy the
+        // ghost by layering the far wall over the near one.
+        side: THREE.FrontSide,
         clippingPlanes: [ghostPlane],
       }),
     );
     this.ghost.name = `${organ.name}-ghost`;
     this.ghost.renderOrder = 700 + index;
     this.ghost.visible = false;
-    this.ghostEligible = triangleCount(organ.geometry) <= GHOST_TRI_BUDGET;
 
     this.stencilGroup.visible = false;
     this.cap.visible = false;
@@ -249,7 +253,7 @@ export class CappedOrgan {
     // Mode 1 — the side-by-side mapping is the whole pedagogical payload, so
     // the panel must never go blank just because the 3D view is uncut.
     this.capGrey.visible = true;
-    this.ghost.visible = mode === 3 && this.ghostEligible;
+    this.ghost.visible = mode === 3;
   }
 
   /** Remove from the scene and release everything. Switching anatomy models
