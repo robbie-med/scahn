@@ -177,7 +177,11 @@ const DEG = Math.PI / 180;
 export const WINDOWS = Object.freeze({
   'subxiphoid': { u: 0.985, v: 0.63, spin: 0, tilt: -55 * DEG },
   'parasternal-long': { u: 0.06, v: 0.77, spin: -45 * DEG, tilt: 0 },
-  'parasternal-short': { u: 0.06, v: 0.77, spin: 45 * DEG, tilt: 0 },
+  // v raised from 0.77: at that height the short-axis cut lands near the apex,
+  // which is almost solid muscle (5% cavity). 0.82 puts it mid-ventricle, the
+  // papillary level that short axis is normally taught at, giving a proper
+  // ring of wall around a cavity (~33%).
+  'parasternal-short': { u: 0.06, v: 0.82, spin: 45 * DEG, tilt: 0 },
   // v raised from 0.66: the apical window sits AT the cardiac apex, and 0.66
   // put the probe ~6 cm below the heart, which returned an essentially empty
   // sector. 0.78 lands inside both the imported heart (y 0.15-0.31) and the

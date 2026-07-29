@@ -63,6 +63,18 @@ export const MODELS = Object.freeze({
     // sits near the torso centre. Z = -48 centres the organ mass in the shell.
     transform: mmTransform({ offset: [70.4, 0, 48] }),
     credit: 'Sketchfab — abdomen anatomy',
+    // This model's heart is a closed outer shell with no chambers. Swap in one
+    // that has genuine interior surfaces so the chambers cap open by themselves
+    // rather than being invented.
+    overrides: [{
+      replaces: /heart/i,
+      url: 'models/heart.glb',
+      // heart.glb leaves the pipeline already in scene axes and centred on its
+      // own bounding box, so this is a pure translation into the thorax.
+      // Slightly left of midline and anterior, which is where a heart sits.
+      transform: new THREE.Matrix4().makeTranslation(0.012, 0.205, 0.045),
+      credit: 'Human Heart (FBX)',
+    }],
   },
   eusLiver: {
     id: 'eusLiver',
@@ -98,6 +110,11 @@ const CLASSES = [
   // Gallbladder before bladder: "gallbladder" contains "bladder".
   [/gallbladder|galblaas|gallenweg/i, { label: 'Gallbladder', color: 0x6f8f3f, cap: 0x9fc45c, grey: 0.06, kind: LUMEN }],
   [/bladder|blaas/i, { label: 'Bladder', color: 0xb0a24c, cap: 0xe0d179, grey: 0.05, kind: LUMEN }],
+  // Valves before heart: they are named `heart-valve-mitral` and would
+  // otherwise be swallowed by the heart pattern. Leaflets are markedly
+  // echogenic, and on a cardiac view they are the moving landmark a learner
+  // is actually looking for.
+  [/valve/i, { label: 'Valve', color: 0xd9d2c2, cap: 0xf2ede1, grey: 0.80, kind: SOLID }],
   // Heart before artery and vein. Source meshes bundle the chambers with the
   // great vessels under names like `Heart_arteries`, so a vessel pattern placed
   // first swallows the entire heart and renders it as anechoic blood — the whole
@@ -128,69 +145,6 @@ const greyHex = (g) => {
 };
 
 // ---------------------------------------------------------------------------
-// synthetic cardiac chambers
-// ---------------------------------------------------------------------------
-
-/**
- * Chamber lumens for hearts imported as a solid mass.
- *
- * SYNTHETIC — these are not in the source data. The bundled heart mesh is a
- * closed outer shell with no interior surfaces (verified by ray casting: two
- * surface crossings on every axis), so capping correctly fills it as one solid
- * block. On a real cardiac view the chambers are the dominant feature, so a
- * solid heart is not a neutral omission, it teaches the wrong thing.
- *
- * The layout is expressed as fractions of the heart's own bounding box, taken
- * from the proportions of the primitive stand-in, so it scales to whatever
- * heart it is given. Only the lower 70% of the box is used: the mesh bundles
- * the great arteries, which arch well above the atria and would otherwise
- * stretch the layout upwards.
- *
- * These positions are approximations and want review from someone who scans.
- * They are deliberately kept in one table so they are easy to correct.
- */
-const CHAMBERS = [
-  // label,           cx,    cy,    cz,     rx,    ry,    rz     (bbox fractions)
-  ['RV', 0.30, 0.36, 0.69, 0.20, 0.22, 0.225],
-  ['LV', 0.70, 0.32, 0.44, 0.222, 0.273, 0.25],
-  ['RA', 0.32, 0.70, 0.375, 0.167, 0.155, 0.1875],
-  ['LA', 0.678, 0.70, 0.25, 0.178, 0.155, 0.1875],
-];
-
-/** Lower fraction of the heart bounding box that is actual chamber-bearing
- *  myocardium rather than outflow tract and arch. */
-const VENTRICULAR_SPAN = 0.7;
-
-function synthesiseHeartChambers(organs) {
-  const heart = organs.find((o) => o.label === 'Heart');
-  if (!heart) return [];
-
-  heart.geometry.computeBoundingBox();
-  const bb = heart.geometry.boundingBox;
-  const sx = bb.max.x - bb.min.x;
-  const sy = (bb.max.y - bb.min.y) * VENTRICULAR_SPAN;
-  const sz = bb.max.z - bb.min.z;
-
-  return CHAMBERS.map(([label, cx, cy, cz, rx, ry, rz]) => {
-    const geom = new THREE.SphereGeometry(1, 24, 16);
-    geom.scale(rx * sx, ry * sy, rz * sz);
-    geom.translate(bb.min.x + cx * sx, bb.min.y + cy * sy, bb.min.z + cz * sz);
-    geom.computeBoundingSphere();
-    return {
-      name: `chamber-${label.toLowerCase()}-synthetic`,
-      label: `${label} (synthetic)`,
-      kind: LUMEN,
-      geometry: geom,
-      color: 0x11161c,
-      capColor: 0x0a0d11,
-      greyColor: greyHex(0.03),
-      // Must outrank the myocardium it sits inside, or the chamber never shows.
-      depthRank: 2,
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
 // import
 // ---------------------------------------------------------------------------
 
@@ -219,7 +173,38 @@ export async function loadModel(id, { onProgress } = {}) {
   draco.setDecoderPath('draco/');
   loader.setDRACOLoader(draco);
 
-  const gltf = await loader.loadAsync(model.url, (e) => {
+  const organs = await importGlb(loader, model.url, model.transform, onProgress);
+
+  // Per-organ overrides: drop the matching meshes and splice in a better model
+  // of the same structure. Used for the heart, whose bundled mesh is a solid
+  // shell with no chambers.
+  const credits = [model.credit];
+  for (const ov of model.overrides ?? []) {
+    let replaced = 0;
+    for (let i = organs.length - 1; i >= 0; i--) {
+      if (ov.replaces.test(organs[i].name)) {
+        organs[i].geometry.dispose();
+        organs.splice(i, 1);
+        replaced++;
+      }
+    }
+    const extra = await importGlb(loader, ov.url, ov.transform, null);
+    organs.push(...extra);
+    if (ov.credit) credits.push(ov.credit);
+    console.info(`[scahn] override ${ov.url}: replaced ${replaced}, added ${extra.length}`);
+  }
+
+  const box = new THREE.Box3();
+  for (const o of organs) {
+    o.geometry.computeBoundingBox();
+    box.union(o.geometry.boundingBox);
+  }
+  return { organs, credit: credits.filter(Boolean).join(' + '), box };
+}
+
+/** Load one GLB and turn its meshes into organ descriptors in scene space. */
+async function importGlb(loader, url, transform, onProgress) {
+  const gltf = await loader.loadAsync(url, (e) => {
     if (onProgress && e.total) onProgress(e.loaded / e.total);
   });
 
@@ -304,7 +289,7 @@ export async function loadModel(id, { onProgress } = {}) {
   // Stage 3: apply the single named source correction and classify.
   const organs = [];
   for (const { mesh, geometry } of kept) {
-    geometry.applyMatrix4(model.transform);
+    if (transform) geometry.applyMatrix4(transform);
     geometry.computeBoundingSphere();
     const spec = classify(mesh.name || '');
     organs.push({
@@ -320,15 +305,5 @@ export async function loadModel(id, { onProgress } = {}) {
     });
   }
 
-  organs.push(...synthesiseHeartChambers(organs));
-
-  // Bounds of the imported anatomy, so the placeholder skin shell can be fitted
-  // around it. These models are life-size; the capsule was a guess.
-  const box = new THREE.Box3();
-  for (const o of organs) {
-    o.geometry.computeBoundingBox();
-    box.union(o.geometry.boundingBox);
-  }
-
-  return { organs, credit: model.credit, box };
+  return organs;
 }
