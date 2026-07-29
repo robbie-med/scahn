@@ -14,3 +14,7 @@ site/
 assets/source/
 assets/work/
 pipeline/*.blend1
+
+# Raw model drop (originals + zips, ~51 MB). The build-ready GLBs live in
+# clients/viewer/public/models/.
+3d_models/

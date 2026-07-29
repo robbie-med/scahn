@@ -44,6 +44,29 @@ html, body {
 }
 .badge-right { left: auto; right: 12px; }
 
+#model-picker {
+  position: absolute;
+  top: 52px;
+  left: 12px;
+  z-index: 6;
+  display: grid;
+  gap: 6px;
+  max-width: 320px;
+}
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button {
+  font: 600 12px/1 ui-sans-serif, system-ui, sans-serif;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid #2a323c;
+  background: rgba(20, 24, 29, 0.9);
+  color: var(--muted);
+  cursor: pointer;
+}
+.chips button.on { background: var(--accent); border-color: var(--accent); color: #06101c; }
+.chips button:disabled { opacity: 0.5; cursor: default; }
+.model-status { color: var(--muted); font-size: 11px; min-height: 1.2em; }
+
 .disclaimer {
   position: absolute;
   top: 12px;

@@ -37,6 +37,25 @@ export const LAYER_2D = 1;
  *  resolve deterministically instead of z-fighting. 50 microns. */
 const COPLANAR_NUDGE = 5e-5;
 
+/**
+ * Ghost pass triangle budget, per mesh.
+ *
+ * Mode 3 draws a second, transparent copy of every organ, and transparent
+ * overdraw is fill-rate bound rather than vertex bound. On the imported abdomen
+ * model that took a 12 ms frame to 67 ms — 15 fps, unusable — because 83% of
+ * its triangles live in eight meshes: small bowel, large bowel, the heart and
+ * the arterial and venous trees.
+ *
+ * Those are also the meshes that read as visual noise when rendered as
+ * translucent context, so excluding them costs almost nothing pedagogically and
+ * buys back the frame. The teaching targets (liver, kidneys, spleen, pancreas,
+ * gallbladder, bladder, uterus) are all far below this and keep their ghost.
+ */
+const GHOST_TRI_BUDGET = 8000;
+
+const triangleCount = (geom) =>
+  (geom.index ? geom.index.count : geom.attributes.position.count) / 3;
+
 export class CappedOrgan {
   /**
    * @param {{name:string, geometry:THREE.BufferGeometry, color:number,
@@ -128,6 +147,7 @@ export class CappedOrgan {
     this.ghost.name = `${organ.name}-ghost`;
     this.ghost.renderOrder = 700 + index;
     this.ghost.visible = false;
+    this.ghostEligible = triangleCount(organ.geometry) <= GHOST_TRI_BUDGET;
 
     this.stencilGroup.visible = false;
     this.cap.visible = false;
@@ -216,15 +236,23 @@ export class CappedOrgan {
     // Mode 1 — the side-by-side mapping is the whole pedagogical payload, so
     // the panel must never go blank just because the 3D view is uncut.
     this.capGrey.visible = true;
-    this.ghost.visible = mode === 3;
+    this.ghost.visible = mode === 3 && this.ghostEligible;
   }
 
-  dispose() {
+  /** Remove from the scene and release everything. Switching anatomy models
+   *  rebuilds every organ, so leaking here would cost tens of MB of GPU memory
+   *  per toggle. `disposeGeometry` is false for the primitive set, whose
+   *  geometry is owned by the builder and reused. */
+  dispose(scene, disposeGeometry = true) {
+    if (scene) {
+      scene.remove(this.stencilGroup, this.cap, this.capGrey, this.surface, this.ghost);
+    }
     this.surface.material.dispose();
     this.cap.material.dispose();
     this.capGrey.material.dispose();
     this.ghost.material.dispose();
     for (const m of this.stencilGroup.children) m.material.dispose();
+    if (disposeGeometry) this.geometry.dispose();
   }
 }
 

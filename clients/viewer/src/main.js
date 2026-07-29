@@ -18,6 +18,7 @@ import {
   BEAM_PROFILES, clampDepth, createBeam, createProbeModel, disposeBeam,
 } from './probe.js';
 import { buildOrgans } from './organs.js';
+import { MODELS, loadModel } from './models.js';
 import { CappedOrgan, LAYER_3D, updateScanPlane } from './capping.js';
 import { Panel2D } from './panel2d.js';
 import { ViewerLink } from './net.js';
@@ -53,7 +54,56 @@ scene.add(skin);
 const scanPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 const ghostPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
 
-const organs = buildOrgans().map((o, i) => new CappedOrgan(o, scanPlane, ghostPlane, i).addTo(scene));
+/** @type {CappedOrgan[]} */
+let organs = [];
+/** Which registry entry is live. The primitive set stays the default: it loads
+ *  instantly and is watertight by construction, so it remains the reference
+ *  against which a capping bug is distinguished from a geometry bug. */
+let modelId = 'primitives';
+let modelBusy = false;
+
+function buildFrom(list, ownsGeometry) {
+  organs = list.map((o, i) => new CappedOrgan(o, scanPlane, ghostPlane, i).addTo(scene));
+  for (const o of organs) o.setMode(state.mode);
+  organsOwnGeometry = ownsGeometry;
+}
+let organsOwnGeometry = false;
+
+function tearDownOrgans() {
+  for (const o of organs) o.dispose(scene, organsOwnGeometry);
+  organs = [];
+}
+
+/**
+ * Swap the anatomy. Imported models are fetched on demand, so a display that
+ * only ever shows primitives never pays for the 10-15 MB download.
+ */
+async function setModel(id) {
+  if (modelBusy || id === modelId || !MODELS[id]) return;
+  modelBusy = true;
+  setModelStatus(MODELS[id].builtin ? '' : `Loading ${MODELS[id].label}…`);
+  try {
+    if (MODELS[id].builtin) {
+      tearDownOrgans();
+      buildFrom(buildOrgans(), true);
+      setModelStatus('');
+    } else {
+      const { organs: list, credit } = await loadModel(id, {
+        onProgress: (f) => setModelStatus(`Loading ${MODELS[id].label}… ${Math.round(f * 100)}%`),
+      });
+      tearDownOrgans();
+      buildFrom(list, true);
+      setModelStatus(credit ? `${MODELS[id].label} — ${credit}` : '');
+    }
+    modelId = id;
+  } catch (err) {
+    console.error('model load failed', err);
+    setModelStatus(`Could not load ${MODELS[id].label}. Still showing ${MODELS[modelId].label}.`);
+  } finally {
+    modelBusy = false;
+    renderModelChips();
+  }
+}
 
 // Probe assembly. The beam is rebuilt on transducer or depth change rather than
 // prebuilt per type, because depth is continuous and the sector geometry, the
@@ -309,6 +359,25 @@ document.getElementById('smooth').addEventListener('input', (e) => {
   state.smoothing = Number(e.target.value);
   document.getElementById('smooth-val').textContent = state.smoothing.toFixed(2);
 });
+function setModelStatus(text) {
+  document.getElementById('model-status').textContent = text;
+}
+
+function renderModelChips() {
+  const host = document.getElementById('model-chips');
+  host.innerHTML = '';
+  for (const m of Object.values(MODELS)) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = m.label;
+    b.title = m.note;
+    b.className = m.id === modelId ? 'on' : '';
+    b.disabled = modelBusy;
+    b.addEventListener('click', () => setModel(m.id));
+    host.appendChild(b);
+  }
+}
+
 document.getElementById('move-gain').addEventListener('input', (e) => {
   state.moveGain = Number(e.target.value);
   document.getElementById('move-gain-val').textContent = state.moveGain.toFixed(2);
@@ -358,8 +427,10 @@ const link = new ViewerLink({
   },
 });
 
+buildFrom(buildOrgans(), true);
 setProbeType('curvilinear');
 setMode(MODES.RAY);
+renderModelChips();
 applyPreset('aorta-transverse');
 layout();
 link.connect();
@@ -367,8 +438,8 @@ tick();
 
 // Handy for the browser-console smoke tests in scripts/smoke.md.
 window.scahn = {
-  state, organs, probe, scanPlane, ghostPlane, panel, skin,
+  state, get organs() { return organs; }, probe, scanPlane, ghostPlane, panel, skin,
   get beam() { return beam; }, setDepth,
   renderer, camera3d, scene, setMode, applyPreset, setProbeType,
-  renderFrame, rect3d: () => rect3d, rect2d: () => rect2d, THREE,
+  renderFrame, setModel, get modelId() { return modelId; }, rect3d: () => rect3d, rect2d: () => rect2d, THREE,
 };
