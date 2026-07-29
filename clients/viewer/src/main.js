@@ -26,6 +26,7 @@ import { CappedOrgan, LAYER_3D, updateScanPlane } from './capping.js';
 import { Panel2D } from './panel2d.js';
 import { ViewerLink } from './net.js';
 import { Stats, phoneUrl, renderQr, renderRoster } from './ui.js';
+import { initAbout } from './about.js';
 
 assertHandedness();
 
@@ -439,6 +440,7 @@ buildFrom(buildOrgans(), true);
 setProbeType('curvilinear');
 setMode(MODES.RAY);
 renderModelChips();
+initAbout();
 applyPreset('aorta-transverse');
 layout();
 link.connect();

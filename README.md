@@ -111,11 +111,31 @@ Known gaps:
 
 ## Licensing and attribution
 
-Code is MIT. **No third-party anatomical assets are included yet**, so no
-share-alike obligation currently attaches.
+Application code is MIT. Model licences are separate and are **not** all
+compatible with how they are currently used. Full credits are in the in-app
+About panel (the ⓘ button) and in `clients/viewer/src/credits.js`.
 
-That changes the moment real meshes land. Z-Anatomy is CC BY-SA 4.0; BodyParts3D
-is CC BY-SA 2.1 Japan, which does **not** cleanly upgrade to 4.0 — if both are
-used they are separate obligations. Share-alike propagates to derivative model
-files. Attribution will go in this README, an in-app credits panel, and the GLB
-metadata. Verify terms at the source rather than trusting this summary.
+| Model | Author | Licence | Status |
+|---|---|---|---|
+| [Endosonographie_Darstellung der Leber](https://skfb.ly/6VsCT) | benbode | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | OK — attribution given |
+| [Abdomen Anatomy](https://sketchfab.com/3d-models/abdomen-anatomy-ed05d3b7b49b4014a09d7a9d62e4f421) | E-learning UMCG | [CC BY-NC-ND 4.0](http://creativecommons.org/licenses/by-nc-nd/4.0/) | **Unresolved** |
+| Human Heart (FBX) | not established | unknown | **Unresolved** |
+| Overview Skeleton | not established | unknown | **Unresolved** |
+
+> ### ⚠️ The abdomen model is NoDerivatives
+>
+> `CC BY-NC-ND 4.0` permits redistributing the file **verbatim** with
+> attribution for non-commercial use. It does **not** permit distributing a
+> modified version. This project repairs, re-meshes, derives lumens from and
+> re-exports that mesh, so the published `models/abdomen.glb` is a derivative
+> work and is outside the licence.
+>
+> Options: obtain permission from E-learning UMCG, ship the original file
+> unmodified and accept the unrepaired meshes, or replace the model.
+>
+> The heart and skeleton files carry no author or licence metadata at all, so
+> their provenance needs establishing before they are published.
+
+Every licence above was read from `asset.extras` embedded in the file itself,
+not from memory. Verify at the source rather than trusting this table — and
+note that a Sketchfab download button does not imply redistribution rights.
