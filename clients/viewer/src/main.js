@@ -13,7 +13,10 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { MODES, PRESET_LABELS, PRESET_PROBE } from '@scahn/protocol';
 
 import { assertHandedness, createFiducials, createRenderer, createScene } from './scene.js';
-import { TORSO, TORSO_CIRCUMFERENCE, WINDOWS, createTorsoMesh, surfaceFrame } from './torso.js';
+import {
+  TORSO, TORSO_DEFAULTS, WINDOWS, createTorsoMesh, fitTorsoTo, setTorso,
+  surfaceFrame, torsoCircumference,
+} from './torso.js';
 import {
   BEAM_PROFILES, clampDepth, createBeam, createProbeModel, disposeBeam,
 } from './probe.js';
@@ -85,13 +88,18 @@ async function setModel(id) {
   try {
     if (MODELS[id].builtin) {
       tearDownOrgans();
+      // Primitives were authored to the default capsule; restore it.
+      setTorso(TORSO_DEFAULTS, skin);
       buildFrom(buildOrgans(), true);
       setModelStatus('');
     } else {
-      const { organs: list, credit } = await loadModel(id, {
+      const { organs: list, credit, box } = await loadModel(id, {
         onProgress: (f) => setModelStatus(`Loading ${MODELS[id].label}… ${Math.round(f * 100)}%`),
       });
       tearDownOrgans();
+      // Grow the skin to enclose the anatomy. Without this the probe rides a
+      // shell that real organs poke through, and it ends up inside the liver.
+      setTorso(fitTorsoTo(box), skin);
       buildFrom(list, true);
       setModelStatus(credit ? `${MODELS[id].label} — ${credit}` : '');
     }
@@ -218,7 +226,7 @@ function leaveWindow() {
  * constant, so a 10 cm hand movement is about 10 cm of travel on the skin.
  */
 function applyPhysicalMove([dx, dy]) {
-  const du = (dx / TORSO_CIRCUMFERENCE) * state.moveGain;
+  const du = (dx / torsoCircumference()) * state.moveGain;
   const dv = (dy / TORSO.height) * state.moveGain;
 
   state.u = (((state.u + du) % 1) + 1) % 1; // wraps around the body
@@ -441,5 +449,5 @@ window.scahn = {
   state, get organs() { return organs; }, probe, scanPlane, ghostPlane, panel, skin,
   get beam() { return beam; }, setDepth,
   renderer, camera3d, scene, setMode, applyPreset, setProbeType,
-  renderFrame, setModel, get modelId() { return modelId; }, rect3d: () => rect3d, rect2d: () => rect2d, THREE,
+  renderFrame, setModel, get modelId() { return modelId; }, torso: () => ({ ...TORSO }), rect3d: () => rect3d, rect2d: () => rect2d, THREE,
 };

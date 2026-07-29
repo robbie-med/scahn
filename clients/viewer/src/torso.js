@@ -12,11 +12,65 @@
 
 import * as THREE from 'three';
 
-export const TORSO = Object.freeze({
+/**
+ * The skin shell the probe rides on.
+ *
+ * Mutable, because it is fitted to whichever anatomy is loaded. The imported
+ * models are life-size and the capsule was a guess, so when they disagree the
+ * capsule is what's wrong — forcing real organs into a placeholder shell is how
+ * the probe ends up buried inside the liver.
+ *
+ * `zCenter` exists because a torso is not centred on its organs: the shell has
+ * to sit slightly anterior of the anatomical mid-plane to enclose the liver and
+ * bowel without the back of the shell floating away from the spine.
+ */
+export const TORSO = {
   rx: 0.17, // half-width, left-right
   rz: 0.115, // half-depth, anterior-posterior
   height: 0.6, // superior-inferior extent
-});
+  zCenter: 0, // AP offset of the shell axis
+  yCenter: 0, // superior-inferior offset of the shell centre
+};
+
+/** Defaults, restored when the primitive organ set is active. */
+export const TORSO_DEFAULTS = Object.freeze({ ...TORSO });
+
+/** Soft-tissue allowance between the outermost organ and the skin. */
+const SKIN_MARGIN = 0.014;
+
+/**
+ * Fit the shell around an anatomy bounding box.
+ *
+ * X is sized from the larger half-extent rather than recentred: the midline was
+ * established from paired organs and must stay at x = 0, and a torso really is
+ * asymmetric about it because the liver is bulkier than what faces it.
+ * Z is both sized and recentred, since the model's AP origin is arbitrary.
+ *
+ * Clamped to plausible adult dimensions so a stray mesh cannot produce an
+ * absurd torso.
+ */
+export function fitTorsoTo(box) {
+  const halfX = Math.max(Math.abs(box.min.x), Math.abs(box.max.x));
+  const zc = (box.min.z + box.max.z) / 2;
+  const halfZ = (box.max.z - box.min.z) / 2;
+  const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+  return {
+    rx: clamp(halfX + SKIN_MARGIN, 0.12, 0.26),
+    rz: clamp(halfZ + SKIN_MARGIN, 0.09, 0.22),
+    height: TORSO_DEFAULTS.height,
+    zCenter: clamp(zc, -0.08, 0.08),
+    yCenter: TORSO_DEFAULTS.yCenter,
+  };
+}
+
+/** Apply new shell dimensions and rebuild the skin mesh in place. */
+export function setTorso(dims, mesh) {
+  Object.assign(TORSO, dims);
+  if (mesh) {
+    mesh.geometry.dispose();
+    mesh.geometry = buildTorsoGeometry();
+  }
+}
 
 const WORLD_SUPERIOR = new THREE.Vector3(0, 1, 0);
 
@@ -26,10 +80,10 @@ const WORLD_SUPERIOR = new THREE.Vector3(0, 1, 0);
  * into a fraction of a lap around the body, so this is what makes a 10 cm hand
  * movement produce roughly 10 cm of probe travel on the skin.
  */
-export const TORSO_CIRCUMFERENCE = (() => {
+export function torsoCircumference() {
   const { rx: a, rz: b } = TORSO;
   return Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
-})();
+}
 
 /**
  * Surface point and orthonormal frame at parameter (u, v).
@@ -52,7 +106,11 @@ export function surfaceFrame(u, v, out = {}) {
   const c = Math.cos(theta);
 
   const position = (out.position ??= new THREE.Vector3());
-  position.set(TORSO.rx * s, (v - 0.5) * TORSO.height, TORSO.rz * c);
+  position.set(
+    TORSO.rx * s,
+    (v - 0.5) * TORSO.height + TORSO.yCenter,
+    TORSO.rz * c + TORSO.zCenter,
+  );
 
   // Outward normal of an ellipse is (sin/rx, 0, cos/rz), not the radial vector.
   const yAxis = (out.yAxis ??= new THREE.Vector3());
@@ -72,10 +130,16 @@ export function surfaceFrame(u, v, out = {}) {
   return out;
 }
 
-/** Translucent skin shell. Open-ended so the interior is visible in Mode 1. */
-export function createTorsoMesh() {
+function buildTorsoGeometry() {
   const geom = new THREE.CylinderGeometry(1, 1, TORSO.height, 96, 1, true);
   geom.scale(TORSO.rx, 1, TORSO.rz);
+  geom.translate(0, TORSO.yCenter, TORSO.zCenter);
+  return geom;
+}
+
+/** Translucent skin shell. Open-ended so the interior is visible in Mode 1. */
+export function createTorsoMesh() {
+  const geom = buildTorsoGeometry();
 
   const mat = new THREE.MeshStandardMaterial({
     color: 0xd9b49a,

@@ -243,5 +243,13 @@ export async function loadModel(id, { onProgress } = {}) {
     });
   }
 
-  return { organs, credit: model.credit };
+  // Bounds of the imported anatomy, so the placeholder skin shell can be fitted
+  // around it. These models are life-size; the capsule was a guess.
+  const box = new THREE.Box3();
+  for (const o of organs) {
+    o.geometry.computeBoundingBox();
+    box.union(o.geometry.boundingBox);
+  }
+
+  return { organs, credit: model.credit, box };
 }
