@@ -33,9 +33,24 @@ DROP = ('label', 'endosonographieger', 'duodenoskopp', 'schallkeule')
 # count on this model is ~9x the true one until this runs.
 WELD_DIST = 1e-4
 
-# Above this many defects a mesh is torn rather than nicked, and hole filling
-# would just span the tears with garbage triangles.
-LIGHT_REPAIR_LIMIT = 12
+# Hole filling is tried FIRST and without a defect-count limit, because a high
+# open-edge count usually means open tube ends, not damage — a trachea has 168
+# and they are simply the two ends of the airway. Filling those preserves every
+# ring of cartilage; remeshing them destroys the structure.
+#
+# What hole filling cannot repair is non-manifold edges, so only a mesh with
+# many of those is genuinely torn and worth the hammer.
+NONMANIFOLD_LIMIT = 40
+
+# Voxel remesh cannot resolve a wall thinner than roughly this many voxels, and
+# a wall it cannot resolve it simply erases. Mean wall thickness is estimated as
+# 2 * volume / area, which is exact for a thin closed shell.
+THICKNESS_VOXELS = 2.5
+
+# If preserving a mesh's walls would need more triangles than this, remeshing is
+# not affordable at a safe resolution, and remeshing at an unsafe one would
+# destroy the very thing being repaired. Leave the mesh as imported and say so.
+MAX_REMESH_TRIS = 45000
 
 # Voxel remesh targets. Output scales as surface_area / voxel^2, so the voxel
 # size is solved for a triangle budget instead of being a fixed guess.
@@ -54,8 +69,12 @@ def mesh_stats(ob):
     nonman = sum(1 for e in bm.edges if len(e.link_faces) > 2)
     tris = sum(len(f.verts) - 2 for f in bm.faces)
     area = sum(f.calc_area() for f in bm.faces)
+    try:
+        vol = abs(bm.calc_volume(signed=True))
+    except Exception:
+        vol = 0.0
     bm.free()
-    return open_e, nonman, tris, area
+    return open_e, nonman, tris, area, vol
 
 
 def weld_and_clean(ob):
@@ -88,19 +107,37 @@ def fill_holes(ob):
     bm.free()
 
 
-def voxel_remesh(ob, area, current_tris):
-    """Tier 2: rebuild the surface. Guarantees manifold output."""
-    target = max(MIN_TARGET_TRIS, min(MAX_TARGET_TRIS, current_tris))
-    # tris ~= 2 * area / voxel^2  ->  voxel = sqrt(2 * area / target)
-    voxel = (2.0 * area / target) ** 0.5 if area > 0 else 2.0
-    voxel = max(0.8, min(voxel, 8.0))
+def plan_remesh(area, vol, current_tris):
+    """
+    Choose a voxel size, or decline.
 
+    Two constraints fight here. A triangle budget wants coarse voxels; the wall
+    thickness wants fine ones. Thickness must win, because a voxel larger than
+    the wall does not approximate the wall, it deletes it — which is how a
+    trachea remeshed at 2.2 mm with 2.6 mm walls came out as 1,172 triangles of
+    unrecognisable tube.
+
+    Returns (voxel, estimated_tris) or (None, estimated_tris) to decline.
+    """
+    target = max(MIN_TARGET_TRIS, min(MAX_TARGET_TRIS, current_tris))
+    budget_voxel = (2.0 * area / target) ** 0.5 if area > 0 else 2.0
+
+    thickness = (2.0 * vol / area) if area > 0 else 0.0
+    safe_voxel = thickness / THICKNESS_VOXELS if thickness > 0 else budget_voxel
+
+    voxel = max(0.4, min(budget_voxel, safe_voxel, 8.0))
+    est = int(2.0 * area / (voxel * voxel)) if voxel > 0 else 0
+    if est > MAX_REMESH_TRIS:
+        return None, est
+    return voxel, est
+
+
+def voxel_remesh(ob, voxel):
     bpy.context.view_layer.objects.active = ob
     mod = ob.modifiers.new(name='voxel', type='REMESH')
     mod.mode = 'VOXEL'
     mod.voxel_size = voxel
     bpy.ops.object.modifier_apply(modifier=mod.name)
-    return voxel
 
 
 def dedupe(meshes):
@@ -156,32 +193,44 @@ def main():
         if ob.type == 'MESH' and ob not in keep:
             bpy.data.objects.remove(ob, do_unlink=True)
 
-    fixed = remeshed = clean = 0
+    fixed = remeshed = clean = declined = 0
     for ob in sorted(keep, key=lambda o: -len(o.data.polygons)):
         weld_and_clean(ob)
-        open_e, nonman, tris, area = mesh_stats(ob)
+        open_e, nonman, tris, area, vol = mesh_stats(ob)
         if open_e == 0 and nonman == 0:
             clean += 1
             log(f'{ob.name[:38]:40} already watertight ({tris} tris)')
             continue
 
-        defects = open_e + nonman
-        if defects <= LIGHT_REPAIR_LIMIT:
-            fill_holes(ob)
-            o2, n2, t2, _ = mesh_stats(ob)
-            if o2 == 0 and n2 == 0:
+        # Tier 1 first, whatever the hole count. Most "damage" is open tube ends.
+        if nonman <= NONMANIFOLD_LIMIT:
+            if open_e:
+                fill_holes(ob)
+            o2, n2, t2, a2, v2 = mesh_stats(ob)
+            if o2 == 0 and n2 <= NONMANIFOLD_LIMIT:
                 fixed += 1
-                log(f'{ob.name[:38]:40} hole-filled  {tris}->{t2} tris')
+                note = '' if n2 == 0 else f' ({n2} non-manifold left)'
+                log(f'{ob.name[:38]:40} hole-filled  {tris}->{t2} tris{note}')
                 continue
-            open_e, nonman, tris, area = o2, n2, t2, area
+            open_e, nonman, tris, area, vol = o2, n2, t2, a2, v2
 
-        voxel = voxel_remesh(ob, area, tris)
-        o2, n2, t2, _ = mesh_stats(ob)
+        voxel, est = plan_remesh(area, vol, tris)
+        thickness = (2.0 * vol / area) if area > 0 else 0.0
+        if voxel is None:
+            declined += 1
+            log(f'{ob.name[:38]:40} LEFT AS IMPORTED — {thickness:.2f}mm walls would '
+                f'need ~{est} tris to remesh safely (open={open_e} nonMan={nonman})')
+            continue
+
+        voxel_remesh(ob, voxel)
+        o2, n2, t2, _, _ = mesh_stats(ob)
         remeshed += 1
         status = 'OK' if (o2 == 0 and n2 == 0) else f'STILL LEAKY open={o2} nonMan={n2}'
-        log(f'{ob.name[:38]:40} remesh @{voxel:.2f}  {tris}->{t2} tris  {status}')
+        log(f'{ob.name[:38]:40} remesh @{voxel:.2f} (walls {thickness:.2f}mm)  '
+            f'{tris}->{t2} tris  {status}')
 
-    log(f'summary: {clean} already clean, {fixed} hole-filled, {remeshed} remeshed')
+    log(f'summary: {clean} clean, {fixed} hole-filled, {remeshed} remeshed, '
+        f'{declined} left as imported')
 
     bpy.ops.export_scene.gltf(
         filepath=dst,
