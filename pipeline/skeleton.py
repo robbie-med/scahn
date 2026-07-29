@@ -81,6 +81,77 @@ def mirror(ob):
     return m
 
 
+WELD_DIST = 1e-4
+
+
+def repair(ob):
+    """
+    Weld, clean and close a bone before it is merged.
+
+    Not optional. The source bones are open shells — the shipped merged mesh had
+    18,221 open edges after welding — and stencil capping counts back faces
+    against front faces over a closed solid. With holes that count never
+    balances, so the cap paints in places the bone is not, which shows up as a
+    ghostly copy of the skeleton floating across the image, and inflates the
+    shadow mask so windows go dark that should be clear.
+
+    Merging made it worse, not better: 78 open shells in one mesh share a single
+    stencil, so one bone's imbalance corrupts every other bone's cap.
+    """
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=WELD_DIST)
+    loose = [v for v in bm.verts if not v.link_faces]
+    if loose:
+        bmesh.ops.delete(bm, geom=loose, context='VERTS')
+    bmesh.ops.dissolve_degenerate(bm, dist=WELD_DIST, edges=bm.edges)
+    boundary = [e for e in bm.edges if len(e.link_faces) == 1]
+    if boundary:
+        bmesh.ops.holes_fill(bm, edges=boundary, sides=0)
+        ngons = [f for f in bm.faces if len(f.verts) > 3]
+        if ngons:
+            bmesh.ops.triangulate(bm, faces=ngons)
+    open_e = sum(1 for e in bm.edges if len(e.link_faces) == 1)
+    nonman = sum(1 for e in bm.edges if len(e.link_faces) > 2)
+    bm.to_mesh(ob.data)
+    ob.data.update()
+    bm.free()
+    return open_e, nonman
+
+
+def voxel_close(ob):
+    """
+    Last resort for a bone hole filling cannot close.
+
+    Voxel remesh always produces a closed manifold surface. Voxel size is capped
+    by the bone's own wall thickness (2*volume/area) so a thin scapula or rib is
+    not simply erased, which is what a fixed voxel size does to thin structures.
+    """
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    area = sum(f.calc_area() for f in bm.faces)
+    try:
+        vol = abs(bm.calc_volume(signed=True))
+    except Exception:
+        vol = 0.0
+    bm.free()
+    if area <= 0:
+        return False
+    thickness = 2.0 * vol / area
+    voxel = max(0.6, min(thickness / 2.5 if thickness > 0 else 2.0, 4.0))
+    # modifier_apply acts on the active object but requires it to be SELECTED
+    # too. Without the select_set the call is a silent no-op, which is why the
+    # voxel fallback appeared to leave bones open when it had never run.
+    bpy.ops.object.select_all(action='DESELECT')
+    ob.select_set(True)
+    bpy.context.view_layer.objects.active = ob
+    mod = ob.modifiers.new(name='vox', type='REMESH')
+    mod.mode = 'VOXEL'
+    mod.voxel_size = voxel
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    return True
+
+
 def tidy_name(name):
     n = name.lower()
     n = re.sub(r'[()]', '', n)
@@ -131,6 +202,38 @@ def main():
         ob.data.name = ob.name
 
     log(f'after decimate: {sum(tris(o) for o in keep)} tris across {len(keep)} bones')
+
+    # Close every bone before merging. Decimation can reopen seams, so this runs
+    # after it.
+    leaky, tot_open, tot_nm = 0, 0, 0
+    for ob in keep:
+        o, n = repair(ob)
+        tot_open += o
+        tot_nm += n
+        if o or n:
+            leaky += 1
+    log(f'hole-filled: {len(keep)-leaky}/{len(keep)} watertight, '
+        f'{tot_open} open and {tot_nm} non-manifold edges remaining')
+
+    # Anything still not closed gets voxel remeshed. Bone must end up watertight:
+    # every open edge leaks stencil into every other bone's cap once they are
+    # merged, which is what put a ghost skeleton across the image.
+    forced = 0
+    for ob in keep:
+        o, n = repair(ob)
+        if not (o or n):
+            continue
+        if voxel_close(ob):
+            o2, n2 = repair(ob)
+            forced += 1
+            if o2 or n2:
+                log(f'  {ob.name[:34]:36} STILL LEAKY after remesh: open={o2} nonMan={n2}')
+    still = 0
+    for ob in keep:
+        o, n = repair(ob)
+        if o or n:
+            still += 1
+    log(f'voxel-closed {forced} bones; {len(keep)-still}/{len(keep)} now watertight')
 
     # Join every bone into ONE mesh, costal cartilage included.
     #
