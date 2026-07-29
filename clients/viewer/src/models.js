@@ -32,11 +32,76 @@ import * as THREE from 'three';
  * ovaries) and cross-checked against midline organs (uterus, bladder) — not
  * from the bounding box, which is skewed by asymmetric organs like the liver.
  */
-function mmTransform({ offset, scale = 0.001 }) {
+function mmTransform({ offset, scale = 0.001, aspect = [1, 1, 1] }) {
   return new THREE.Matrix4()
-    .makeScale(scale, scale, scale)
+    .makeScale(scale * aspect[0], scale * aspect[1], scale * aspect[2])
     .multiply(new THREE.Matrix4().makeTranslation(-offset[0], -offset[1], -offset[2]));
 }
+
+/**
+ * Aspect correction for the abdomen model.
+ *
+ * Measured against adult reference dimensions, this model is not uniformly
+ * scaled — it is stretched along one axis:
+ *
+ *              lateral   superior-inferior   anterior-posterior
+ *   kidney      1.16x          0.91x               1.94x
+ *   liver       1.17x          1.03x               1.79x
+ *
+ * Superior-inferior is right, so the vertical landmarks the window presets were
+ * tuned against are sound. But at ~1.8x too deep the liver measures 19.8 cm
+ * anterior-posterior against a 10-12 cm reference, which is why it burst out
+ * the front of the ribcage, why the auto-fitted torso came out 26 cm deep, and
+ * why every organ read as oversized.
+ *
+ * Correcting the source is the right move rather than inflating the skeleton to
+ * accommodate it: the skeleton is anatomically consistent and life-size, and
+ * scaling it up to enclose a distorted liver would need a 2 m frame and would
+ * pull every vertebral level out of alignment.
+ */
+const ABDOMEN_ASPECT = [0.86, 1.0, 0.54];
+
+/**
+ * Seat the detailed heart in the thorax.
+ *
+ * Three corrections, in order applied to the mesh (scale, then rotate, then
+ * translate):
+ *
+ * 1. SCALE. Measured against the liver the heart was 11% undersized — a
+ *    heart:liver superior-inferior ratio of 0.77 against a reference 0.86.
+ *
+ * 2. ROTATE. The pipeline centres the heart on its own bounding box with the
+ *    long axis vertical, so the apex pointed straight down and very slightly
+ *    POSTERIOR: measured axis (+2.4, -4.5, -0.8) cm. A real cardiac axis runs
+ *    obliquely from a base that is posterior-superior-right to an apex that is
+ *    antero-inferior-LEFT. Rotating about the patient's left axis swings the
+ *    apex forward; a further rotation about the anterior axis adds leftward
+ *    tilt.
+ *
+ * 3. TRANSLATE. The heart sits immediately behind the sternum, left of midline.
+ *
+ * The registration target is the great vessels: the abdomen model's descending
+ * thoracic aorta runs at a steady (x = +0.6, z = -1.2 cm) through the whole
+ * thorax, and the heart's own vessel stubs have to be continuous with it rather
+ * than floating in front of it.
+ */
+const DEG = Math.PI / 180;
+
+function heartTransform({ scale, rotX, rotZ, pos }) {
+  return new THREE.Matrix4()
+    .makeTranslation(pos[0], pos[1], pos[2])
+    .multiply(new THREE.Matrix4().makeRotationZ(rotZ * DEG))
+    .multiply(new THREE.Matrix4().makeRotationX(rotX * DEG))
+    .multiply(new THREE.Matrix4().makeScale(scale, scale, scale));
+}
+
+const HEART_SEAT = heartTransform({
+  scale: 1.22,
+  rotX: -40,   // apex forward
+  rotZ: 15,    // apex further to the patient's left
+  pos: [0.020, 0.205, 0.040],
+});
+
 
 /** Meshes that are scene furniture or instruments, not anatomy. */
 const DROP_PATTERNS = [
@@ -61,7 +126,7 @@ export const MODELS = Object.freeze({
     // Midline X = 70.4 (mean of kidney, adrenal and ovary midpoints, and of the
     // uterus and bladder centroids). Y needs no shift: the source origin already
     // sits near the torso centre. Z = -48 centres the organ mass in the shell.
-    transform: mmTransform({ offset: [70.4, 0, 48] }),
+    transform: mmTransform({ offset: [70.4, 0, 48], aspect: ABDOMEN_ASPECT }),
     credit: 'Sketchfab — abdomen anatomy',
     // This model's heart is a closed outer shell with no chambers. Swap in one
     // that has genuine interior surfaces so the chambers cap open by themselves
@@ -69,10 +134,7 @@ export const MODELS = Object.freeze({
     overrides: [{
       replaces: /heart/i,
       url: 'models/heart.glb',
-      // heart.glb leaves the pipeline already in scene axes and centred on its
-      // own bounding box, so this is a pure translation into the thorax.
-      // Slightly left of midline and anterior, which is where a heart sits.
-      transform: new THREE.Matrix4().makeTranslation(0.012, 0.205, 0.045),
+      transform: HEART_SEAT,
       credit: 'Human Heart (FBX)',
     }],
   },
@@ -81,12 +143,12 @@ export const MODELS = Object.freeze({
     label: 'Abdomen + Skeleton',
     note: 'Adds spine, ribs and sternum. Bone is hyperechoic and shadows.',
     url: 'models/abdomen.glb',
-    transform: mmTransform({ offset: [70.4, 0, 48] }),
+    transform: mmTransform({ offset: [70.4, 0, 48], aspect: ABDOMEN_ASPECT }),
     credit: 'Sketchfab — abdomen anatomy',
     overrides: [{
       replaces: /heart/i,
       url: 'models/heart.glb',
-      transform: new THREE.Matrix4().makeTranslation(0.012, 0.205, 0.045),
+      transform: HEART_SEAT,
       credit: 'Human Heart (FBX)',
     }],
     // Added alongside rather than replacing anything.

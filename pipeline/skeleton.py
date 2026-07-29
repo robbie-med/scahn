@@ -132,18 +132,16 @@ def main():
 
     log(f'after decimate: {sum(tris(o) for o in keep)} tris across {len(keep)} bones')
 
-    # Join every bone into ONE mesh.
+    # Join every bone into ONE mesh, costal cartilage included.
     #
     # Capping clears the stencil buffer once per mesh, and a full-buffer clear is
     # not cheap. At 73 separate bones that is 73 clears per pass across three
     # passes, which took the panel from 5 ms to 32 ms a frame — the cost is mesh
     # count, not triangles.
     #
-    # Safe to merge because every bone classifies identically, so nothing is lost
-    # visually, and because the stencil count is per-ray: disjoint closed shells
-    # in one mesh still balance individually. Even where a rib and its costal
-    # cartilage interpenetrate the count stays nonzero inside the union, which is
-    # the correct cap.
+    # Safe to merge because every bone classifies identically, and because the
+    # stencil count is per-ray: disjoint closed shells in one mesh still balance
+    # individually.
     bpy.ops.object.select_all(action='DESELECT')
     for ob in keep:
         ob.select_set(True)
@@ -152,7 +150,7 @@ def main():
     merged = bpy.context.view_layer.objects.active
     merged.name = 'bone-skeleton'
     merged.data.name = merged.name
-    log(f'joined into one mesh: {tris(merged)} tris')
+    log(f'joined {len(keep)} bones into one mesh: {tris(merged)} tris')
 
     bpy.ops.export_scene.gltf(
         filepath=dst,
