@@ -70,6 +70,7 @@ export class CappedOrgan {
      *  audited at runtime — a keyword classifier fails silently otherwise. */
     this.label = organ.label ?? organ.name;
     this.depthRank = organ.depthRank ?? 1;
+    this.index = index;
     this.plane = plane;
     this.geometry = organ.geometry;
 
@@ -206,10 +207,19 @@ export class CappedOrgan {
     this.plane.projectPoint(this.capCenter, this._pos);
     this._look.copy(this._pos).add(this.plane.normal);
 
-    if (this.depthRank > 1) {
-      this._toCam.copy(camera.position).sub(this._pos).normalize();
-      this._pos.addScaledVector(this._toCam, COPLANAR_NUDGE * this.depthRank);
-    }
+    // Every cap quad lies on the same plane, so without a per-organ offset the
+    // solid organs all sit at *identical* depth and z-fight wherever they
+    // overlap on screen — which reads as speckle that crawls as the probe
+    // moves, worst in the abdomen where bowel and vessels overlap everything.
+    //
+    // The rank keeps lumens ahead of their enclosing wall (a chamber must win
+    // against its myocardium); the index fraction then breaks ties between
+    // organs of equal rank deterministically. Total spread stays under 150
+    // microns, far below anything visible at organ scale but well above depth
+    // buffer precision.
+    this._toCam.copy(camera.position).sub(this._pos).normalize();
+    const rank = this.depthRank + this.index / 64;
+    this._pos.addScaledVector(this._toCam, COPLANAR_NUDGE * rank);
 
     for (const cap of [this.cap, this.capGrey]) {
       cap.position.copy(this._pos);

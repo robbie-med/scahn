@@ -128,6 +128,69 @@ const greyHex = (g) => {
 };
 
 // ---------------------------------------------------------------------------
+// synthetic cardiac chambers
+// ---------------------------------------------------------------------------
+
+/**
+ * Chamber lumens for hearts imported as a solid mass.
+ *
+ * SYNTHETIC — these are not in the source data. The bundled heart mesh is a
+ * closed outer shell with no interior surfaces (verified by ray casting: two
+ * surface crossings on every axis), so capping correctly fills it as one solid
+ * block. On a real cardiac view the chambers are the dominant feature, so a
+ * solid heart is not a neutral omission, it teaches the wrong thing.
+ *
+ * The layout is expressed as fractions of the heart's own bounding box, taken
+ * from the proportions of the primitive stand-in, so it scales to whatever
+ * heart it is given. Only the lower 70% of the box is used: the mesh bundles
+ * the great arteries, which arch well above the atria and would otherwise
+ * stretch the layout upwards.
+ *
+ * These positions are approximations and want review from someone who scans.
+ * They are deliberately kept in one table so they are easy to correct.
+ */
+const CHAMBERS = [
+  // label,           cx,    cy,    cz,     rx,    ry,    rz     (bbox fractions)
+  ['RV', 0.30, 0.36, 0.69, 0.20, 0.22, 0.225],
+  ['LV', 0.70, 0.32, 0.44, 0.222, 0.273, 0.25],
+  ['RA', 0.32, 0.70, 0.375, 0.167, 0.155, 0.1875],
+  ['LA', 0.678, 0.70, 0.25, 0.178, 0.155, 0.1875],
+];
+
+/** Lower fraction of the heart bounding box that is actual chamber-bearing
+ *  myocardium rather than outflow tract and arch. */
+const VENTRICULAR_SPAN = 0.7;
+
+function synthesiseHeartChambers(organs) {
+  const heart = organs.find((o) => o.label === 'Heart');
+  if (!heart) return [];
+
+  heart.geometry.computeBoundingBox();
+  const bb = heart.geometry.boundingBox;
+  const sx = bb.max.x - bb.min.x;
+  const sy = (bb.max.y - bb.min.y) * VENTRICULAR_SPAN;
+  const sz = bb.max.z - bb.min.z;
+
+  return CHAMBERS.map(([label, cx, cy, cz, rx, ry, rz]) => {
+    const geom = new THREE.SphereGeometry(1, 24, 16);
+    geom.scale(rx * sx, ry * sy, rz * sz);
+    geom.translate(bb.min.x + cx * sx, bb.min.y + cy * sy, bb.min.z + cz * sz);
+    geom.computeBoundingSphere();
+    return {
+      name: `chamber-${label.toLowerCase()}-synthetic`,
+      label: `${label} (synthetic)`,
+      kind: LUMEN,
+      geometry: geom,
+      color: 0x11161c,
+      capColor: 0x0a0d11,
+      greyColor: greyHex(0.03),
+      // Must outrank the myocardium it sits inside, or the chamber never shows.
+      depthRank: 2,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // import
 // ---------------------------------------------------------------------------
 
@@ -247,6 +310,8 @@ export async function loadModel(id, { onProgress } = {}) {
       depthRank: spec.kind === LUMEN ? 2 : 1,
     });
   }
+
+  organs.push(...synthesiseHeartChambers(organs));
 
   // Bounds of the imported anatomy, so the placeholder skin shell can be fitted
   // around it. These models are life-size; the capsule was a guess.
