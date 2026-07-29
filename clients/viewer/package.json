@@ -1,0 +1,19 @@
+{
+  "name": "@scahn/viewer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@scahn/protocol": "*",
+    "qrcode-generator": "^1.4.4",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.11"
+  }
+}

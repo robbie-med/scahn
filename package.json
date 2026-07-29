@@ -1,0 +1,27 @@
+{
+  "name": "scahn",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Ultrasound scanning-technique teaching tool. Phone as inertial sensor, separate screen renders 3D anatomy + corresponding 2D cross-section.",
+  "license": "CC-BY-SA-4.0",
+  "workspaces": [
+    "shared",
+    "relay",
+    "clients/viewer",
+    "clients/phone",
+    "worker"
+  ],
+  "scripts": {
+    "dev": "./scripts/dev.sh",
+    "dev:relay": "npm run dev --workspace @scahn/relay",
+    "dev:viewer": "npm run dev --workspace @scahn/viewer",
+    "dev:phone": "npm run dev --workspace @scahn/phone",
+    "build": "npm run build --workspace @scahn/viewer && npm run build --workspace @scahn/phone",
+    "start": "npm run start --workspace @scahn/relay",
+    "tunnel": "./scripts/tunnel.sh"
+  },
+  "engines": {
+    "node": ">=18.18"
+  }
+}

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+site/
+*.log
+.DS_Store
+
+# Cloudflare credentials — never commit these.
+.cf_token
+.dev.vars
+.wrangler/
+
+# Blender pipeline intermediates. Source anatomy is large and separately
+# licensed (CC BY-SA) — keep it out of the repo and fetch it per assets/README.
+assets/source/
+assets/work/
+pipeline/*.blend1

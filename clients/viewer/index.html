@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scahn — Viewer</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="stage"></canvas>
+
+      <!-- Sector mask + graticule for the 2D panel. Positioned over the right
+           viewport; paints everything OUTSIDE the beam sector opaque so the
+           panel reads as an ultrasound screen, not a rectangle of geometry. -->
+      <svg id="panel-overlay" aria-hidden="true"></svg>
+
+      <div id="window-name" class="badge">No window</div>
+      <div id="mode-name" class="badge badge-right">Mode 1 — Ray</div>
+
+      <!-- Organs are primitive ellipsoid stand-ins at plausible-not-correct
+           positions until the Blender asset pipeline (P3) lands. This must stay
+           visible until real anatomy ships. -->
+      <div id="prealpha" class="disclaimer">
+        <b>Pre-alpha — not anatomically accurate.</b>
+        Organ shapes and positions are geometric placeholders for testing probe
+        handling only. Do not use for anatomy or clinical instruction.
+      </div>
+
+      <aside id="pairing">
+        <h1>Scahn</h1>
+        <p class="lede">Scan this with your phone's camera app.</p>
+        <div id="qr"></div>
+        <div id="code" class="code">------</div>
+        <p class="hint" id="pair-hint">Or open <b id="pair-url">…</b> and type the code.</p>
+        <div id="roster"></div>
+      </aside>
+
+      <details id="debug">
+        <summary>Debug</summary>
+        <div class="row"><label>Smoothing <input id="smooth" type="range" min="0.02" max="1" step="0.01" value="0.25" /></label><span id="smooth-val">0.25</span></div>
+        <div class="row"><label><input id="invert-clip" type="checkbox" /> Invert clip side</label></div>
+        <div class="row"><label><input id="show-beam" type="checkbox" checked /> Beam sector</label></div>
+        <dl id="stats"></dl>
+      </details>
+    </div>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

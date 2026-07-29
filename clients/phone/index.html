@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#0b0d10" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Scahn — Probe</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <!-- Gate screen. iOS requires requestPermission() to be called from a user
+         gesture in a secure context, so the very first thing is a big button. -->
+    <section id="gate" class="screen">
+      <h1>Scahn</h1>
+      <p class="lede">Your phone becomes the ultrasound probe.</p>
+      <p class="disclaimer">
+        <b>Pre-alpha.</b> Anatomy shown is a geometric placeholder, not
+        anatomically accurate. For probe-handling testing only.
+      </p>
+
+      <label class="field">
+        <span>Room code</span>
+        <input id="room-input" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+               placeholder="000000" autocomplete="off" />
+      </label>
+
+      <button id="start" class="primary">Connect &amp; enable motion</button>
+      <p id="gate-msg" class="msg"></p>
+    </section>
+
+    <!-- Driving screen -->
+    <section id="main" class="screen hidden">
+      <header>
+        <span id="state-pill" class="pill">Viewing only</span>
+        <span id="room-pill" class="pill muted"></span>
+      </header>
+
+      <button id="recenter" class="primary big">Recenter</button>
+      <button id="claim" class="ghost hidden">Take control</button>
+
+      <div class="group">
+        <div class="group-label">Placement — drag to slide the probe on the skin</div>
+        <div id="pad" class="pad"><span>drag</span></div>
+      </div>
+
+      <div class="group">
+        <div class="group-label">Window</div>
+        <div id="presets" class="chips"></div>
+      </div>
+
+      <div class="group">
+        <div class="group-label">Transducer</div>
+        <div id="probes" class="chips"></div>
+      </div>
+
+      <div class="group">
+        <div class="group-label">View mode</div>
+        <div id="modes" class="chips"></div>
+      </div>
+
+      <p id="status" class="msg"></p>
+    </section>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

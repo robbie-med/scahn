@@ -1,0 +1,36 @@
+name = "scahn"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# Serves the built clients from the same origin as /ws, which is what makes the
+# iOS secure-context requirement (spec 7.1) satisfied by default rather than by
+# construction. `not_found_handling` gives /phone/ its directory index.
+[assets]
+directory = "../site"
+binding = "ASSETS"
+# NOT single-page-application: that returns the viewer with HTTP 200 for every
+# unmatched path, so a mistyped phone URL would silently load the wrong client
+# instead of failing visibly. Directory indexes (/phone/ -> /phone/index.html)
+# come from html_handling and are unaffected by this.
+not_found_handling = "none"
+
+# Custom domain. Attaching this replaces the DNS record that currently points
+# scahn.robbiemed.org at GitHub Pages, and gives us automatic TLS — which is
+# what satisfies the iOS secure-context requirement for motion access.
+
+[[routes]]
+pattern = "scahn.robbiemed.org"
+custom_domain = true
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+# SQLite-backed Durable Objects are available on the free plan and are the
+# backend we want regardless.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+[observability]
+enabled = true
