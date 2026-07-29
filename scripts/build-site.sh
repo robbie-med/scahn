@@ -13,6 +13,17 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Draco decoder must be in the build output, not just in node_modules — the
+# assets are Draco-compressed and the viewer fetches the decoder at runtime.
+DRACO_SRC=node_modules/three/examples/jsm/libs/draco/gltf
+if [ ! -f "$DRACO_SRC/draco_decoder.wasm" ]; then
+  echo "Draco decoder missing from $DRACO_SRC — run npm install." >&2
+  exit 1
+fi
+mkdir -p clients/viewer/public/draco
+cp "$DRACO_SRC"/draco_decoder.js "$DRACO_SRC"/draco_decoder.wasm \
+   "$DRACO_SRC"/draco_wasm_wrapper.js clients/viewer/public/draco/
+
 npm run build --workspace @scahn/viewer
 npm run build --workspace @scahn/phone
 

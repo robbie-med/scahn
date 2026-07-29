@@ -208,7 +208,16 @@ export async function loadModel(id, { onProgress } = {}) {
   // Loaded on demand: the GLBs are 10-15 MB and must not sit in the critical
   // path of a display that is only ever going to show the primitives.
   const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+  const { DRACOLoader } = await import('three/examples/jsm/loaders/DRACOLoader.js');
+
   const loader = new GLTFLoader();
+  // The pipeline exports Draco-compressed (10 MB -> 849 kB), and GLTFLoader
+  // cannot decode that on its own. The decoder is copied into the build output
+  // by scripts/build-site.sh; without it the model fails to load in production
+  // while working from a dev tree that happens to have node_modules on disk.
+  const draco = new DRACOLoader();
+  draco.setDecoderPath('draco/');
+  loader.setDRACOLoader(draco);
 
   const gltf = await loader.loadAsync(model.url, (e) => {
     if (onProgress && e.total) onProgress(e.loaded / e.total);
