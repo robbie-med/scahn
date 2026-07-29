@@ -15,7 +15,7 @@
 
 import * as THREE from 'three';
 import { sectorExtent, sectorOutline } from './probe.js';
-import { LAYER_2D } from './capping.js';
+import { LAYER_2D, LAYER_BONE } from './capping.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -39,6 +39,76 @@ const DEPTH = 0.45;
 
 const PAD = 1.06; // frustum padding around the sector
 
+/**
+ * Acoustic shadowing behind bone.
+ *
+ * Cortical bone reflects almost the entire beam, so what you see is a bright
+ * near surface and nothing at all beyond it. This is the one acoustic effect
+ * worth having in a tool about probe placement, because rib shadows are the
+ * reason the cardiac and RUQ windows exist at all — without them a learner
+ * cannot tell why sliding one interspace makes an image appear.
+ *
+ * Implemented as a composite pass rather than in the geometry: the panel is
+ * rendered to one target, bone alone to a second, and each pixel then marches
+ * back along its own scan line toward the transducer. If it crosses bone on the
+ * way, it is in shadow. Marching toward the apex rather than away from it means
+ * the first bone encountered is the near cortex, so the bone's own far side is
+ * shadowed too — which is what a rib actually looks like.
+ */
+const SHADOW_STEPS = 96;
+/**
+ * Bright rind, in UV. The march has to start a little way from the pixel it is
+ * shading, or a bone pixel finds bone one step toward the transducer and
+ * shadows itself — a rib collapses to a 1px outline instead of the bright
+ * cortical line it should be. This is the thickness of that surviving line.
+ */
+const SHADOW_RIND = 0.014;
+/** How dark the shadow goes. Not fully black: on a real machine a shadow still
+ *  carries a little noise, and pure black reads as a rendering failure. */
+const SHADOW_FLOOR = 0.06;
+
+const SHADOW_FRAG = /* glsl */`
+  uniform sampler2D tPanel;
+  uniform sampler2D tBone;
+  uniform vec2 uApex;      // transducer apex in UV space
+  uniform float uLinear;   // 1.0 for a linear probe: parallel rays, no apex
+  uniform float uFloor;
+  uniform float uRind;
+  varying vec2 vUv;
+
+  void main() {
+    vec4 panel = texture2D(tPanel, vUv);
+
+    // Direction back toward the transducer. A sector converges on its apex; a
+    // linear array's rays are parallel, so there is no apex to aim at.
+    vec2 toApex = mix(normalize(uApex - vUv), vec2(0.0, 1.0), uLinear);
+    float span = mix(distance(uApex, vUv), vUv.y, uLinear);
+
+    // Nothing between here and the transducer can be shadowing us.
+    float hit = 0.0;
+    if (span > uRind) {
+      for (int i = 1; i <= ${SHADOW_STEPS}; i++) {
+        float d = uRind + (span - uRind) * (float(i) / float(${SHADOW_STEPS}));
+        vec2 p = vUv + toApex * d;
+        if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) break;
+        hit = max(hit, step(0.5, texture2D(tBone, p).r));
+      }
+    }
+
+    // Shadow multiplies rather than replaces, so the sector mask and graticule
+    // drawn over the panel stay untouched.
+    gl_FragColor = vec4(panel.rgb * mix(1.0, uFloor, hit), panel.a);
+  }
+`;
+
+const SHADOW_VERT = /* glsl */`
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = vec4(position.xy, 0.0, 1.0);
+  }
+`;
+
 export class Panel2D {
   constructor(svgEl) {
     this.svg = svgEl;
@@ -50,6 +120,36 @@ export class Panel2D {
     this.rect = { x: 0, y: 0, w: 1, h: 1 };
     this._profileName = null;
     this._frustum = null;
+
+    // --- shadow compositing ---------------------------------------------------
+    this.shadowEnabled = false;
+    this.boneCamera = this.camera.clone();
+    this.boneCamera.layers.set(LAYER_BONE);
+
+    const rtOpts = { depthBuffer: true, stencilBuffer: true };
+    this.rtPanel = new THREE.WebGLRenderTarget(2, 2, rtOpts);
+    this.rtBone = new THREE.WebGLRenderTarget(2, 2, rtOpts);
+
+    // ShaderMaterial, not RawShaderMaterial: Raw does not inject the `position`
+    // and `uv` attribute declarations, so the shader fails to link and every
+    // draw raises GL_INVALID_OPERATION.
+    this.shadowMat = new THREE.ShaderMaterial({
+      vertexShader: SHADOW_VERT,
+      fragmentShader: SHADOW_FRAG,
+      uniforms: {
+        tPanel: { value: this.rtPanel.texture },
+        tBone: { value: this.rtBone.texture },
+        uApex: { value: new THREE.Vector2(0.5, 1.2) },
+        uLinear: { value: 0 },
+        uFloor: { value: SHADOW_FLOOR },
+        uRind: { value: SHADOW_RIND },
+      },
+      depthTest: false,
+      depthWrite: false,
+    });
+    this.quadScene = new THREE.Scene();
+    this.quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.shadowMat));
+    this.quadCamera = new THREE.Camera();
 
     this._q = new THREE.Quaternion();
     this._pos = new THREE.Vector3();
@@ -70,6 +170,9 @@ export class Panel2D {
       height: `${h}px`,
     });
     this.svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    const dpr = Math.min(window.devicePixelRatio, 2);
+    this.rtPanel.setSize(Math.max(2, Math.round(w * dpr)), Math.max(2, Math.round(h * dpr)));
+    this.rtBone.setSize(Math.max(2, Math.round(w * dpr)), Math.max(2, Math.round(h * dpr)));
     this._frustum = null; // force a redraw of the mask at the new size
   }
 
@@ -118,6 +221,18 @@ export class Panel2D {
 
     this._view = { cx, cy, halfW, halfH };
 
+    // Transducer apex in panel UV, for the shadow march. A sector converges on
+    // a point behind its face; a linear array has no apex and parallel rays.
+    const isLinear = profile.kind === 'linear';
+    if (isLinear) {
+      this.shadowMat.uniforms.uLinear.value = 1;
+    } else {
+      this.shadowMat.uniforms.uLinear.value = 0;
+      const [ax, ay] = this._map(0, profile.originOffset);
+      // _map is top-down pixels; texture UV is bottom-up.
+      this.shadowMat.uniforms.uApex.value.set(ax / this.rect.w, 1 - ay / this.rect.h);
+    }
+
     // Depth is part of the key: change it and the sector mask and the depth
     // graticule must both be redrawn, not just the frustum.
     const key = `${profile.label}:${profile.depth.toFixed(3)}:${this.rect.w}x${this.rect.h}`;
@@ -125,6 +240,42 @@ export class Panel2D {
       this._frustumKey = key;
       this._drawDressing(profile);
     }
+  }
+
+  /**
+   * Draw the panel, optionally with acoustic shadowing behind bone.
+   *
+   * @param {(x:number,y:number,w:number,h:number)=>void} setViewport
+   */
+  render(renderer, scene, setViewport) {
+    if (!this.shadowEnabled) {
+      setViewport();
+      renderer.clear(true, true, true);
+      renderer.render(scene, this.camera);
+      return;
+    }
+
+    renderer.setRenderTarget(this.rtPanel);
+    renderer.setScissorTest(false);
+    renderer.clear(true, true, true);
+    renderer.render(scene, this.camera);
+
+    // `copy` brings the layer mask across with everything else, so the bone
+    // camera has to be re-restricted or this pass renders the whole panel again
+    // and every pixel ends up shadowed.
+    this.boneCamera.copy(this.camera);
+    this.boneCamera.layers.set(LAYER_BONE);
+    this.boneCamera.updateProjectionMatrix();
+    this.boneCamera.updateMatrixWorld(true);
+    renderer.setRenderTarget(this.rtBone);
+    renderer.clear(true, true, true);
+    renderer.render(scene, this.boneCamera);
+
+    renderer.setRenderTarget(null);
+    renderer.setScissorTest(true);
+    setViewport();
+    renderer.clear(true, true, true);
+    renderer.render(this.quadScene, this.quadCamera);
   }
 
   /**

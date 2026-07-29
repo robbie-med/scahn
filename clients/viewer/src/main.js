@@ -69,6 +69,9 @@ let modelBusy = false;
 function buildFrom(list, ownsGeometry) {
   organs = list.map((o, i) => new CappedOrgan(o, scanPlane, ghostPlane, i).addTo(scene));
   for (const o of organs) o.setMode(state.mode);
+  // The shadow pass costs two extra renders and a composite, so it only runs
+  // for models that actually contain bone.
+  panel.shadowEnabled = organs.some((o) => o.bone);
   organsOwnGeometry = ownsGeometry;
 }
 let organsOwnGeometry = false;
@@ -341,9 +344,7 @@ function renderFrame() {
   // --- 2D pass ---
   panel.update(probe, state.profile);
   for (const o of organs) o.update(panel.camera);
-  applyViewport(rect2d);
-  renderer.clear(true, true, true);
-  renderer.render(scene, panel.camera);
+  panel.render(renderer, scene, () => applyViewport(rect2d));
 
   renderer.setScissorTest(false);
 

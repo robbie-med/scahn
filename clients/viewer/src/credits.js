@@ -54,9 +54,11 @@ export const MODELS_CREDITS = [
     author: 'Not established',
     source: 'Supplied as overview-skeleton.glb',
     licence: 'UNKNOWN',
-    used: 'Not currently loaded.',
+    used: 'The "Abdomen + Skeleton" model — spine, ribs, sternum and pelvis.',
     status: 'unknown',
-    note: 'Exported via Khronos glTF Blender I/O; no author or licence metadata.',
+    note: 'Exported via Khronos glTF Blender I/O; no author or licence metadata. '
+        + 'Supplied as a hemi-skeleton (right side only); the left side is '
+        + 'mirrored by the asset pipeline.',
   },
 ];
 
@@ -103,6 +105,16 @@ export const HOW_IT_WORKS = [
      + 'nonzero. Without that a cut organ renders as a hollow bowl rather than a '
      + 'solid face. The 2D panel is a second, orthographic camera looking down '
      + 'the plane normal at the same geometry, so the two views cannot disagree.',
+  },
+  {
+    h: 'Bone and acoustic shadowing',
+    p: 'In the Abdomen + Skeleton model, bone behaves the way it does on a real '
+     + 'machine: the near cortical surface is the brightest thing in the image '
+     + 'and everything deep to it is shadow, because bone reflects nearly the '
+     + 'whole beam. This is the one acoustic effect the tool simulates, and it '
+     + 'is here because rib shadows are the reason the cardiac and right upper '
+     + 'quadrant windows sit where they do. Slide onto a rib and the image '
+     + 'disappears; slide into the interspace and it returns.',
   },
   {
     h: 'What this is not',

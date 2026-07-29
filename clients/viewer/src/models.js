@@ -76,6 +76,37 @@ export const MODELS = Object.freeze({
       credit: 'Human Heart (FBX)',
     }],
   },
+  abdomenSkeleton: {
+    id: 'abdomenSkeleton',
+    label: 'Abdomen + Skeleton',
+    note: 'Adds spine, ribs and sternum. Bone is hyperechoic and shadows.',
+    url: 'models/abdomen.glb',
+    transform: mmTransform({ offset: [70.4, 0, 48] }),
+    credit: 'Sketchfab — abdomen anatomy',
+    overrides: [{
+      replaces: /heart/i,
+      url: 'models/heart.glb',
+      transform: new THREE.Matrix4().makeTranslation(0.012, 0.205, 0.045),
+      credit: 'Human Heart (FBX)',
+    }],
+    // Added alongside rather than replacing anything.
+    //
+    // The Y offset aligns vertebral levels to the organs already in the scene,
+    // not the bounding boxes: T8 sits at the heart's centre, T12 at the liver
+    // dome and adrenals, L1 at the renal hilum. Averaging those three gives
+    // -1.0546, and it places T8 at y=0.208 against a heart centre of 0.205 and
+    // L1 at 0.055 against kidneys at 0.058-0.071.
+    //
+    // The pelvis lands high — the sacrum sits ~12 cm above the bladder rather
+    // than level with it — because the organ model and the skeleton come from
+    // different sources with different proportions. Thoracic alignment is what
+    // rib shadowing depends on, so that is what this optimises for.
+    additions: [{
+      url: 'models/skeleton.glb',
+      transform: new THREE.Matrix4().makeTranslation(0, -1.0546, 0),
+      credit: 'Overview Skeleton',
+    }],
+  },
   eusLiver: {
     id: 'eusLiver',
     label: 'Liver / EUS',
@@ -107,6 +138,12 @@ const SOLID = 'solid';
  * learner will expect to see.
  */
 const CLASSES = [
+  // Bone first and matched on an unambiguous prefix the pipeline assigns, so
+  // no anatomical keyword can ever steal it. Cortical bone reflects almost the
+  // whole beam: the near surface is the brightest thing in any image, and
+  // everything deep to it is shadow. The brightness is here; the shadow is a
+  // rendering pass (see Panel2D).
+  [/^bone-/i, { label: 'Bone', color: 0xe9e3d6, cap: 0xfffdf6, grey: 0.97, kind: SOLID, bone: true }],
   // Hollow viscera: lumen patterns first, and gallbladder before bladder, since
   // "gallbladder" contains "bladder" and would otherwise be swallowed.
   //
@@ -203,10 +240,20 @@ export async function loadModel(id, { onProgress } = {}) {
     console.info(`[scahn] override ${ov.url}: replaced ${replaced}, added ${extra.length}`);
   }
 
+  for (const add of model.additions ?? []) {
+    const extra = await importGlb(loader, add.url, add.transform, null);
+    organs.push(...extra);
+    if (add.credit) credits.push(add.credit);
+    console.info(`[scahn] addition ${add.url}: +${extra.length} meshes`);
+  }
+
+  // Bones are excluded from the shell fit: the skeleton is a whole body and its
+  // pelvis and shoulders reach far outside the trunk the probe rides on, so
+  // including them would inflate the torso into a barrel.
   const box = new THREE.Box3();
   for (const o of organs) {
     o.geometry.computeBoundingBox();
-    box.union(o.geometry.boundingBox);
+    if (!o.bone) box.union(o.geometry.boundingBox);
   }
   return { organs, credit: credits.filter(Boolean).join(' + '), box };
 }
@@ -309,6 +356,7 @@ async function importGlb(loader, url, transform, onProgress) {
       color: spec.color,
       capColor: spec.cap,
       greyColor: greyHex(spec.grey),
+      bone: spec.bone === true,
       // Lumens must win the coplanar depth fight against any enclosing wall.
       depthRank: spec.kind === LUMEN ? 2 : 1,
     });

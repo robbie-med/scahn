@@ -32,6 +32,13 @@ const CAP_GEOM = new THREE.PlaneGeometry(1, 1);
  */
 export const LAYER_3D = 0;
 export const LAYER_2D = 1;
+/**
+ * layer 2 — bone only, rendered to its own mask so the panel can cast acoustic
+ * shadows. Cortical bone reflects nearly the whole beam, so everything deep to
+ * it is unimaged. That is not decoration: rib shadows are precisely why the
+ * cardiac and RUQ windows are where they are.
+ */
+export const LAYER_BONE = 2;
 
 /** Small push toward the camera so coplanar caps (a lumen inside its wall)
  *  resolve deterministically instead of z-fighting. 50 microns. */
@@ -74,6 +81,7 @@ export class CappedOrgan {
     this.label = organ.label ?? organ.name;
     this.depthRank = organ.depthRank ?? 1;
     this.index = index;
+    this.bone = organ.bone === true;
     this.plane = plane;
     this.geometry = organ.geometry;
 
@@ -122,7 +130,15 @@ export class CappedOrgan {
       });
       const m = new THREE.Mesh(organ.geometry, mat);
       m.renderOrder = base;
-      m.layers.enable(LAYER_2D); // stencil must be built in BOTH passes
+      // Stencil must be built in every pass that draws a cap from it — and in
+      // NO pass that does not.
+      //
+      // The stencil clear rides on the cap. In the bone pass only bone draws a
+      // cap, so a non-bone organ enabled here would write stencil that nothing
+      // ever clears; the bone cap then paints wherever any organ had interior
+      // and the whole viscera end up in shadow.
+      m.layers.enable(LAYER_2D);
+      if (this.bone) m.layers.enable(LAYER_BONE);
       this.stencilGroup.add(m);
     }
 
@@ -134,6 +150,9 @@ export class CappedOrgan {
     this.cap.name = `${organ.name}-cap`;
     this.capGrey = this._makeCap(organ.greyColor ?? 0x808080, base + 2, LAYER_2D);
     this.capGrey.name = `${organ.name}-cap2d`;
+    // Bone draws into the mask pass as well, from the same geometry and the
+    // same stencil, so the mask can never disagree with what the panel shows.
+    if (this.bone) this.capGrey.layers.enable(LAYER_BONE);
 
     // --- ghost pass (Mode 3) -------------------------------------------------
     // Clipped by the INVERTED plane so this draws only the half that the opaque
