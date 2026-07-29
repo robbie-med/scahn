@@ -13,8 +13,10 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { MODES, PRESET_LABELS, PRESET_PROBE } from '@scahn/protocol';
 
 import { assertHandedness, createFiducials, createRenderer, createScene } from './scene.js';
-import { WINDOWS, createTorsoMesh, surfaceFrame } from './torso.js';
-import { BEAM_PROFILES, createBeam, createProbeModel } from './probe.js';
+import { TORSO, TORSO_CIRCUMFERENCE, WINDOWS, createTorsoMesh, surfaceFrame } from './torso.js';
+import {
+  BEAM_PROFILES, clampDepth, createBeam, createProbeModel, disposeBeam,
+} from './probe.js';
 import { buildOrgans } from './organs.js';
 import { CappedOrgan, LAYER_3D, updateScanPlane } from './capping.js';
 import { Panel2D } from './panel2d.js';
@@ -53,15 +55,13 @@ const ghostPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
 
 const organs = buildOrgans().map((o, i) => new CappedOrgan(o, scanPlane, ghostPlane, i).addTo(scene));
 
-// Probe assembly: model + one beam per transducer, visibility-switched.
+// Probe assembly. The beam is rebuilt on transducer or depth change rather than
+// prebuilt per type, because depth is continuous and the sector geometry, the
+// 2D frustum and the depth graticule all have to be regenerated together.
 const probe = new THREE.Object3D();
 probe.add(createProbeModel());
-const beams = {};
-for (const name of Object.keys(BEAM_PROFILES)) {
-  beams[name] = createBeam(name);
-  beams[name].visible = false;
-  probe.add(beams[name]);
-}
+/** @type {THREE.Group|null} */
+let beam = null;
 scene.add(probe);
 
 const panel = new Panel2D(document.getElementById('panel-overlay'));
@@ -79,6 +79,17 @@ const state = {
   spin: 0,
   tilt: 0,
   smoothing: 0.25,
+  /** Metres of phone travel per metre of probe travel on the skin. 1.0 is
+   *  physically 1:1, which is the whole point of moving the phone in the air. */
+  moveGain: 1.0,
+  /** Imaging depth in metres, remembered per transducer. */
+  depthByType: {
+    curvilinear: BEAM_PROFILES.curvilinear.depth,
+    phased: BEAM_PROFILES.phased.depth,
+    linear: BEAM_PROFILES.linear.depth,
+  },
+  /** Depth-resolved profile for the current transducer; set by rebuildBeam(). */
+  profile: null,
   invertClip: false,
   showBeam: true,
   /** Latest orientation from the phone, and the smoothed value we render. */
@@ -93,10 +104,33 @@ const qTilt = new THREE.Quaternion();
 const AXIS_X = new THREE.Vector3(1, 0, 0);
 const AXIS_Y = new THREE.Vector3(0, 1, 0);
 
+function rebuildBeam() {
+  if (beam) {
+    probe.remove(beam);
+    disposeBeam(beam);
+  }
+  beam = createBeam(state.probeType, state.depthByType[state.probeType]);
+  beam.visible = state.showBeam;
+  beam.userData.fill.visible = state.mode === MODES.RAY;
+  probe.add(beam);
+  // The depth-resolved profile: the single object the 2D panel reads, so the
+  // beam and the panel can never disagree about how deep the image goes.
+  state.profile = beam.userData.profile;
+}
+
 function setProbeType(name) {
   if (!BEAM_PROFILES[name]) return;
   state.probeType = name;
-  for (const [k, g] of Object.entries(beams)) g.visible = state.showBeam && k === name;
+  rebuildBeam();
+}
+
+/** Depth is remembered per transducer, as it is on a real machine — switching
+ *  to the linear probe and back should not lose your abdominal depth. */
+function setDepth(metres) {
+  const next = clampDepth(state.probeType, metres);
+  if (next === state.depthByType[state.probeType]) return;
+  state.depthByType[state.probeType] = next;
+  rebuildBeam();
 }
 
 function applyPreset(name) {
@@ -109,6 +143,37 @@ function applyPreset(name) {
   state.tilt = w.tilt;
   setProbeType(PRESET_PROBE[name] ?? state.probeType);
   windowNameEl.textContent = PRESET_LABELS[name] ?? name;
+}
+
+/** Any manual placement means the learner has left the named window. */
+function leaveWindow() {
+  if (!state.preset) return;
+  state.preset = null;
+  windowNameEl.textContent = 'Free placement';
+}
+
+/**
+ * Map a physical phone displacement onto the skin surface.
+ *
+ * The delta arrives in the recentered frame, which is Y-up, so:
+ *   +Y (lift the phone)      -> superior, along v
+ *   +X (move it to the right) -> the viewer's right, which is the patient's
+ *                                LEFT given the camera sits on +Z, so u rises
+ *   +Z is discarded entirely — that is the surface constraint. Throwing away
+ *      the out-of-plane component removes a whole axis of dead-reckoning error
+ *      and is why the probe cannot drift off the body no matter how badly the
+ *      integration misbehaves.
+ *
+ * Lateral travel is divided by the torso circumference rather than a made-up
+ * constant, so a 10 cm hand movement is about 10 cm of travel on the skin.
+ */
+function applyPhysicalMove([dx, dy]) {
+  const du = (dx / TORSO_CIRCUMFERENCE) * state.moveGain;
+  const dv = (dy / TORSO.height) * state.moveGain;
+
+  state.u = (((state.u + du) % 1) + 1) % 1; // wraps around the body
+  state.v = Math.min(Math.max(state.v + dv, 0), 1); // clamps at head and hips
+  leaveWindow();
 }
 
 function setMode(mode) {
@@ -124,9 +189,7 @@ function setMode(mode) {
   }
 
   // Sector is a translucent surface in Mode 1, a thin outline in 2 and 3.
-  for (const g of Object.values(beams)) {
-    g.userData.fill.visible = mode === MODES.RAY;
-  }
+  if (beam) beam.userData.fill.visible = mode === MODES.RAY;
   modeNameEl.textContent = { 1: 'Mode 1 — Ray', 2: 'Mode 2 — Cut', 3: 'Mode 3 — Ghost' }[mode];
 }
 
@@ -217,7 +280,7 @@ function renderFrame() {
   renderer.render(scene, camera3d);
 
   // --- 2D pass ---
-  panel.update(probe, state.probeType);
+  panel.update(probe, state.profile);
   for (const o of organs) o.update(panel.camera);
   applyViewport(rect2d);
   renderer.clear(true, true, true);
@@ -229,6 +292,7 @@ function renderFrame() {
     mode: state.mode,
     probe: state.probeType,
     'u,v': `${state.u.toFixed(2)}, ${state.v.toFixed(2)}`,
+    depth: `${Math.round((state.profile?.depth ?? 0) * 100)} cm`,
   });
 }
 
@@ -245,12 +309,16 @@ document.getElementById('smooth').addEventListener('input', (e) => {
   state.smoothing = Number(e.target.value);
   document.getElementById('smooth-val').textContent = state.smoothing.toFixed(2);
 });
+document.getElementById('move-gain').addEventListener('input', (e) => {
+  state.moveGain = Number(e.target.value);
+  document.getElementById('move-gain-val').textContent = state.moveGain.toFixed(2);
+});
 document.getElementById('invert-clip').addEventListener('change', (e) => {
   state.invertClip = e.target.checked;
 });
 document.getElementById('show-beam').addEventListener('change', (e) => {
   state.showBeam = e.target.checked;
-  setProbeType(state.probeType);
+  if (beam) beam.visible = state.showBeam;
 });
 
 window.addEventListener('keydown', (e) => {
@@ -277,14 +345,12 @@ const link = new ViewerLink({
     if (msg.surf) {
       state.u = ((msg.surf[0] % 1) + 1) % 1;
       state.v = Math.min(Math.max(msg.surf[1], 0), 1);
-      // A manual drag means the learner has left the named window.
-      if (state.preset) {
-        state.preset = null;
-        windowNameEl.textContent = 'Free placement';
-      }
+      leaveWindow();
     }
+    if (msg.dpos) applyPhysicalMove(msg.dpos);
     if (msg.preset) applyPreset(msg.preset);
     if (msg.probe) setProbeType(msg.probe);
+    if (msg.depth != null) setDepth(msg.depth);
   },
   onMode: setMode,
   onStatus(s) {
@@ -301,7 +367,8 @@ tick();
 
 // Handy for the browser-console smoke tests in scripts/smoke.md.
 window.scahn = {
-  state, organs, probe, scanPlane, ghostPlane, panel, skin, beams,
+  state, organs, probe, scanPlane, ghostPlane, panel, skin,
+  get beam() { return beam; }, setDepth,
   renderer, camera3d, scene, setMode, applyPreset, setProbeType,
   renderFrame, rect3d: () => rect3d, rect2d: () => rect2d, THREE,
 };

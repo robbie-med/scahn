@@ -49,6 +49,29 @@ export const PRESETS = Object.freeze([
 
 export const MODES = Object.freeze({ RAY: 1, CUT: 2, GHOST: 3 });
 
+/**
+ * Selectable imaging depth per transducer, in metres. Ranges follow what the
+ * corresponding real probe can actually resolve — a linear probe has no
+ * business at 20 cm, and a phased array is wasted at 4 cm.
+ *
+ * Shared rather than viewer-local so the phone's depth stepper and the viewer's
+ * beam geometry cannot disagree about the limits.
+ */
+export const DEPTH_LIMITS = Object.freeze({
+  curvilinear: { min: 0.08, max: 0.30, step: 0.02, default: 0.20 },
+  phased: { min: 0.06, max: 0.24, step: 0.02, default: 0.18 },
+  linear: { min: 0.02, max: 0.09, step: 0.01, default: 0.06 },
+});
+
+/** Clamp a depth to what the given transducer supports, snapped to its step. */
+export function clampDepth(probeType, depth) {
+  const lim = DEPTH_LIMITS[probeType];
+  if (!lim) return depth;
+  const snapped = Math.round(depth / lim.step) * lim.step;
+  // Re-round to kill binary float dust so equality checks stay meaningful.
+  return Math.round(Math.min(Math.max(snapped, lim.min), lim.max) * 1000) / 1000;
+}
+
 // ---------------------------------------------------------------------------
 // Limits (spec section 7.5)
 // ---------------------------------------------------------------------------
@@ -141,6 +164,23 @@ export function validateClientFrame(msg) {
       }
       if (msg.preset != null && !PRESETS.includes(msg.preset)) return ERRORS.BAD_FRAME;
       if (msg.probe != null && !PROBE_TYPES.includes(msg.probe)) return ERRORS.BAD_FRAME;
+      // Optional physical-translation delta, metres, in the recentered frame.
+      // Additive and optional, so v1 clients that never send it stay valid.
+      // Imaging depth in metres. Range covers a 2 cm linear-probe window up to
+      // a 40 cm deep abdominal sweep; anything outside is a bad frame.
+      if (msg.depth != null) {
+        if (!isFiniteNum(msg.depth) || msg.depth < 0.02 || msg.depth > 0.40) {
+          return ERRORS.BAD_FRAME;
+        }
+      }
+      if (msg.dpos != null) {
+        if (!Array.isArray(msg.dpos) || msg.dpos.length !== 3 || !msg.dpos.every(isFiniteNum)) {
+          return ERRORS.BAD_FRAME;
+        }
+        // A single 30 Hz frame can never legitimately carry a metre of travel;
+        // reject rather than let an integration blow-up teleport the probe.
+        if (msg.dpos.some((n) => Math.abs(n) > 1)) return ERRORS.BAD_FRAME;
+      }
       return null;
 
     case 'mode':

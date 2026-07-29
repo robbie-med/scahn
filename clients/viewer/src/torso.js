@@ -21,6 +21,17 @@ export const TORSO = Object.freeze({
 const WORLD_SUPERIOR = new THREE.Vector3(0, 1, 0);
 
 /**
+ * Circumference of the torso's elliptical cross-section (Ramanujan's
+ * approximation). Physical translation converts metres of lateral phone travel
+ * into a fraction of a lap around the body, so this is what makes a 10 cm hand
+ * movement produce roughly 10 cm of probe travel on the skin.
+ */
+export const TORSO_CIRCUMFERENCE = (() => {
+  const { rx: a, rz: b } = TORSO;
+  return Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
+})();
+
+/**
  * Surface point and orthonormal frame at parameter (u, v).
  *
  *   u: 0..1 around the circumference, measured from the ANTERIOR midline (+Z)

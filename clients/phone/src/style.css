@@ -96,6 +96,47 @@ header { display: flex; gap: 8px; align-items: center; }
 .chips button { padding: 10px 12px; font-size: 13px; }
 .chips button.on { background: var(--accent); border-color: var(--accent); color: #06101c; font-weight: 700; }
 
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--card);
+  border: 1px solid #2a323c;
+  border-radius: 12px;
+  padding: 6px;
+}
+.stepper button {
+  width: 60px;
+  padding: 14px 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+.stepper button:disabled { opacity: 0.35; }
+.stepper span {
+  flex: 1;
+  text-align: center;
+  font: 700 20px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.move {
+  padding: 20px;
+  font-size: 17px;
+  font-weight: 700;
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(78, 163, 255, 0.08);
+  touch-action: none;
+}
+.move.engaged {
+  background: var(--accent);
+  color: #06101c;
+  box-shadow: 0 0 0 3px rgba(78, 163, 255, 0.25);
+}
+.move:disabled { opacity: 0.45; border-color: #2a323c; color: var(--muted); background: var(--card); }
+.movehint { color: var(--muted); font-size: 11px; margin-top: -2px; }
+
 .pad {
   height: 150px;
   border-radius: 14px;

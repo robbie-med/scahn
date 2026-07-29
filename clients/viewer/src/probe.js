@@ -12,6 +12,9 @@
  */
 
 import * as THREE from 'three';
+import { clampDepth } from '@scahn/protocol';
+
+export { clampDepth };
 
 const DEG = Math.PI / 180;
 
@@ -43,6 +46,18 @@ export const BEAM_PROFILES = Object.freeze({
     label: 'Linear',
   },
 });
+
+/**
+ * A beam profile with the user's chosen depth applied.
+ *
+ * Everything downstream — the 3D sector mesh, the 2D orthographic frustum and
+ * the panel's depth graticule — derives from this one object, so a depth change
+ * cannot leave them disagreeing about how deep the image goes.
+ */
+export function effectiveProfile(profileName, depth) {
+  const base = BEAM_PROFILES[profileName];
+  return { ...base, depth: clampDepth(profileName, depth ?? base.depth) };
+}
 
 const ARC_STEPS = 48;
 
@@ -100,8 +115,8 @@ function outlineToShape(pts) {
  * Translucent fill for Mode 1, plus a thin outline for Modes 2 and 3.
  * Both opt out of clipping — the beam is an instrument, not tissue.
  */
-export function createBeam(profileName) {
-  const profile = BEAM_PROFILES[profileName];
+export function createBeam(profileName, depth) {
+  const profile = effectiveProfile(profileName, depth);
   const pts = sectorOutline(profile);
 
   const fill = new THREE.Mesh(
@@ -128,6 +143,15 @@ export function createBeam(profileName) {
   group.add(fill, loop);
   group.userData = { profileName, profile, fill, loop };
   return group;
+}
+
+/** Beam geometry is rebuilt whenever transducer or depth changes, so the old
+ *  one has to be released rather than left for the GC to not collect. */
+export function disposeBeam(group) {
+  for (const child of group.children) {
+    child.geometry?.dispose();
+    child.material?.dispose();
+  }
 }
 
 /**

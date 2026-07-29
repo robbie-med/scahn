@@ -14,7 +14,7 @@
  */
 
 import * as THREE from 'three';
-import { BEAM_PROFILES, sectorExtent, sectorOutline } from './probe.js';
+import { sectorExtent, sectorOutline } from './probe.js';
 import { LAYER_2D } from './capping.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -77,8 +77,8 @@ export class Panel2D {
    * Re-aim the camera at the probe and, when the transducer or panel size has
    * changed, rebuild the SVG dressing.
    */
-  update(probe, profileName) {
-    const profile = BEAM_PROFILES[profileName];
+  /** @param {import('./probe.js').BeamProfile} profile already depth-resolved */
+  update(probe, profile) {
     probe.updateMatrixWorld();
     probe.getWorldQuaternion(this._q);
     probe.getWorldPosition(this._pos);
@@ -118,7 +118,9 @@ export class Panel2D {
 
     this._view = { cx, cy, halfW, halfH };
 
-    const key = `${profileName}:${this.rect.w}x${this.rect.h}`;
+    // Depth is part of the key: change it and the sector mask and the depth
+    // graticule must both be redrawn, not just the frustum.
+    const key = `${profile.label}:${profile.depth.toFixed(3)}:${this.rect.w}x${this.rect.h}`;
     if (key !== this._frustumKey) {
       this._frustumKey = key;
       this._drawDressing(profile);
@@ -170,16 +172,27 @@ export class Panel2D {
     });
     el('path', { d: outline, fill: 'none', stroke: '#2c3844', 'stroke-width': 1 });
 
-    // 2. Depth scale down the right edge, ticks every 2 cm, labels every 5 cm.
+    // 2. Depth scale down the right edge.
+    //
+    // Tick spacing adapts to depth. A fixed 2 cm tick / 5 cm label works for an
+    // abdominal sweep but leaves the linear probe's 6 cm window with no numbers
+    // on it at all, which is worse than useless on a depth scale.
+    // The label step MUST be a multiple of the tick step, or labels land only
+    // where the two happen to coincide — a 2 cm tick with a 5 cm label prints
+    // nothing but multiples of 10, so an 18 cm phased view gets exactly one
+    // number on its scale. 1 cm ticks with 5 cm numbering is what real machines
+    // do anyway.
     const depthCm = Math.round(profile.depth * 100);
+    const tickCm = 1;
+    const labelCm = depthCm <= 10 ? 2 : 5;
     const axisX = w - 26;
     el('line', {
       x1: axisX, y1: this._map(0, 0)[1], x2: axisX, y2: this._map(0, -profile.depth)[1],
       stroke: '#4b5a68', 'stroke-width': 1,
     });
-    for (let cm = 0; cm <= depthCm; cm += 2) {
+    for (let cm = 0; cm <= depthCm; cm += tickCm) {
       const [, y] = this._map(0, -cm / 100);
-      const major = cm % 5 === 0;
+      const major = cm % labelCm === 0;
       el('line', {
         x1: axisX, y1: y, x2: axisX + (major ? 9 : 5), y2: y,
         stroke: major ? '#8b98a8' : '#4b5a68', 'stroke-width': 1,
@@ -203,6 +216,6 @@ export class Panel2D {
     el('text', {
       x: 12, y: h - 12, fill: '#5d6b7a',
       'font-size': 11, 'font-family': 'ui-sans-serif, system-ui, sans-serif',
-    }, profile.label);
+    }, `${profile.label} · ${depthCm} cm`);
   }
 }

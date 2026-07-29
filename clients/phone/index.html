@@ -40,8 +40,26 @@
       <button id="claim" class="ghost hidden">Take control</button>
 
       <div class="group">
-        <div class="group-label">Placement — drag to slide the probe on the skin</div>
-        <div id="pad" class="pad"><span>drag</span></div>
+        <div class="group-label">Placement</div>
+        <div id="placement-mode" class="chips"></div>
+
+        <!-- Drag mode: the original implementation. -->
+        <div id="pane-drag">
+          <div class="movehint">Drag to slide the probe on the skin.</div>
+          <div id="pad" class="pad"><span>drag</span></div>
+        </div>
+
+        <!-- Space mode. Hold-to-move is a clutch, not a switch: releasing
+             zeroes velocity so dead-reckoning drift cannot accumulate past a
+             single stroke. Without it the probe wanders off the body in
+             seconds, which is a property of the hardware, not a bug. -->
+        <div id="pane-space" class="hidden">
+          <button id="move" class="move">Hold &amp; move the phone</button>
+          <div id="move-hint" class="movehint">
+            Hold, move the phone across the body, release. Releasing re-anchors —
+            like lifting a mouse. Tap Recenter if it drifts.
+          </div>
+        </div>
       </div>
 
       <div class="group">
@@ -52,6 +70,15 @@
       <div class="group">
         <div class="group-label">Transducer</div>
         <div id="probes" class="chips"></div>
+      </div>
+
+      <div class="group">
+        <div class="group-label">Depth</div>
+        <div class="stepper">
+          <button id="depth-down" type="button" aria-label="Decrease depth">&minus;</button>
+          <span id="depth-val">20 cm</span>
+          <button id="depth-up" type="button" aria-label="Increase depth">+</button>
+        </div>
       </div>
 
       <div class="group">
