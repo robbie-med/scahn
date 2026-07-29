@@ -66,6 +66,9 @@ export class CappedOrgan {
    */
   constructor(organ, plane, ghostPlane, index) {
     this.name = organ.name;
+    /** Classified tissue label, e.g. 'Liver'. Kept so the classification can be
+     *  audited at runtime — a keyword classifier fails silently otherwise. */
+    this.label = organ.label ?? organ.name;
     this.depthRank = organ.depthRank ?? 1;
     this.plane = plane;
     this.geometry = organ.geometry;

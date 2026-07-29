@@ -95,8 +95,14 @@ const SOLID = 'solid';
  * learner will expect to see.
  */
 const CLASSES = [
+  // Gallbladder before bladder: "gallbladder" contains "bladder".
   [/gallbladder|galblaas|gallenweg/i, { label: 'Gallbladder', color: 0x6f8f3f, cap: 0x9fc45c, grey: 0.06, kind: LUMEN }],
   [/bladder|blaas/i, { label: 'Bladder', color: 0xb0a24c, cap: 0xe0d179, grey: 0.05, kind: LUMEN }],
+  // Heart before artery and vein. Source meshes bundle the chambers with the
+  // great vessels under names like `Heart_arteries`, so a vessel pattern placed
+  // first swallows the entire heart and renders it as anechoic blood — the whole
+  // cardiac window comes out black while capping is working perfectly.
+  [/heart|hart|myocard/i, { label: 'Heart', color: 0x9c3f45, cap: 0xd4737a, grey: 0.56, kind: SOLID }],
   [/lever|liver|leber/i, { label: 'Liver', color: 0x8c5a4a, cap: 0xc98a72, grey: 0.52, kind: SOLID }],
   [/spleen|milt|milz/i, { label: 'Spleen', color: 0x7a4358, cap: 0xb56d87, grey: 0.48, kind: SOLID }],
   [/kidney|nier/i, { label: 'Kidney', color: 0x99604a, cap: 0xd08f70, grey: 0.44, kind: SOLID }],
@@ -107,7 +113,6 @@ const CLASSES = [
   [/urether|ureter/i, { label: 'Ureter', color: 0x8f9aa8, cap: 0xbcc6d2, grey: 0.45, kind: SOLID }],
   [/aorta|arter|pfortader/i, { label: 'Artery', color: 0xa33a3a, cap: 0xdc5f5f, grey: 0.05, kind: LUMEN }],
   [/vena|vein|vene/i, { label: 'Vein', color: 0x3a5aa3, cap: 0x6f92dc, grey: 0.05, kind: LUMEN }],
-  [/heart|hart/i, { label: 'Heart', color: 0x9c3f45, cap: 0xd4737a, grey: 0.56, kind: SOLID }],
   [/intestine|darm|magen|stomach/i, { label: 'Bowel', color: 0xa88b6a, cap: 0xd3b891, grey: 0.42, kind: SOLID }],
   [/trachea|cartilage/i, { label: 'Airway', color: 0xc9c2b4, cap: 0xe6e0d4, grey: 0.72, kind: SOLID }],
 ];

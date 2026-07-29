@@ -178,7 +178,11 @@ export const WINDOWS = Object.freeze({
   'subxiphoid': { u: 0.985, v: 0.63, spin: 0, tilt: -55 * DEG },
   'parasternal-long': { u: 0.06, v: 0.77, spin: -45 * DEG, tilt: 0 },
   'parasternal-short': { u: 0.06, v: 0.77, spin: 45 * DEG, tilt: 0 },
-  'apical-four-chamber': { u: 0.11, v: 0.66, spin: 60 * DEG, tilt: -25 * DEG },
+  // v raised from 0.66: the apical window sits AT the cardiac apex, and 0.66
+  // put the probe ~6 cm below the heart, which returned an essentially empty
+  // sector. 0.78 lands inside both the imported heart (y 0.15-0.31) and the
+  // primitive stand-in (y 0.135-0.245), so it holds across models.
+  'apical-four-chamber': { u: 0.11, v: 0.78, spin: 60 * DEG, tilt: -25 * DEG },
   'ruq-morison': { u: 0.78, v: 0.54, spin: 90 * DEG, tilt: 0 },
   'luq-splenorenal': { u: 0.22, v: 0.58, spin: 90 * DEG, tilt: 0 },
   'suprapubic': { u: 0.0, v: 0.14, spin: 0, tilt: -20 * DEG },
