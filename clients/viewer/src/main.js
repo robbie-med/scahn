@@ -21,7 +21,7 @@ import {
   BEAM_PROFILES, clampDepth, createBeam, createProbeModel, disposeBeam,
 } from './probe.js';
 import { buildOrgans } from './organs.js';
-import { MODELS, loadModel } from './models.js';
+import { IDENTITY_LAYOUT, MODELS, SCENE_LAYOUT, loadModel } from './models.js';
 import { CappedOrgan, LAYER_3D, updateScanPlane } from './capping.js';
 import { Panel2D } from './panel2d.js';
 import { ViewerLink } from './net.js';
@@ -113,6 +113,25 @@ function worldAnatomyBox() {
   return box;
 }
 
+const DEG2RAD = Math.PI / 180;
+
+/** Apply a scene layout (the editor's output) to the three group nodes. */
+function applyLayout(layout) {
+  for (const [key, g] of Object.entries(GROUPS)) {
+    const t = layout[key];
+    if (!t) continue;
+    g.position.fromArray(t.position);
+    g.rotation.set(
+      t.rotationDeg[0] * DEG2RAD,
+      t.rotationDeg[1] * DEG2RAD,
+      t.rotationDeg[2] * DEG2RAD,
+    );
+    if (Array.isArray(t.scale)) g.scale.fromArray(t.scale);
+    else g.scale.setScalar(t.scale);
+  }
+  scene.updateMatrixWorld(true);
+}
+
 function tearDownOrgans() {
   for (const o of organs) o.dispose(scene, organsOwnGeometry);
   organs = [];
@@ -129,19 +148,21 @@ async function setModel(id) {
   try {
     if (MODELS[id].builtin) {
       tearDownOrgans();
-      // Primitives were authored to the default capsule; restore it.
-      setTorso(TORSO_DEFAULTS, skin);
+      // Primitives were authored to the default capsule; restore both.
       buildFrom(buildOrgans(), true);
+      applyLayout(IDENTITY_LAYOUT);
+      setTorso(TORSO_DEFAULTS, skin);
       setModelStatus('');
     } else {
       const { organs: list, credit, box } = await loadModel(id, {
         onProgress: (f) => setModelStatus(`Loading ${MODELS[id].label}… ${Math.round(f * 100)}%`),
       });
       tearDownOrgans();
-      // Grow the skin to enclose the anatomy. Without this the probe rides a
-      // shell that real organs poke through, and it ends up inside the liver.
-      setTorso(fitTorsoTo(box), skin);
       buildFrom(list, true);
+      // Layout first: it rescales the organs, so the shell must be fitted to
+      // where they actually end up, not to the raw import bounds.
+      applyLayout(SCENE_LAYOUT);
+      setTorso(fitTorsoTo(worldAnatomyBox()), skin);
       setModelStatus(credit ? `${MODELS[id].label} — ${credit}` : '');
     }
     modelId = id;
@@ -478,6 +499,7 @@ const link = new ViewerLink({
 });
 
 buildFrom(buildOrgans(), true);
+applyLayout(IDENTITY_LAYOUT);
 setProbeType('curvilinear');
 setMode(MODES.RAY);
 renderModelChips();

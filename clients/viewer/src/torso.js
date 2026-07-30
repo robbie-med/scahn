@@ -176,7 +176,11 @@ const DEG = Math.PI / 180;
 
 export const WINDOWS = Object.freeze({
   'subxiphoid': { u: 0.985, v: 0.63, spin: 0, tilt: -55 * DEG },
-  'parasternal-long': { u: 0.06, v: 0.77, spin: -45 * DEG, tilt: 0 },
+  // Raised from v=0.77 after the scene was set in the editor: the heart moved up
+  // to a centre of y=25.8 cm, and 0.77 aimed below it entirely (5 px of
+  // myocardium). Swept against measured wall-and-cavity area; 0.86/0.08 cuts the
+  // LV long axis with a prominent cavity, which is what PLAX should show.
+  'parasternal-long': { u: 0.08, v: 0.86, spin: -45 * DEG, tilt: 0 },
   // v raised from 0.77: at that height the short-axis cut lands near the apex,
   // which is almost solid muscle (5% cavity). 0.82 puts it mid-ventricle, the
   // papillary level that short axis is normally taught at, giving a proper

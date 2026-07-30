@@ -247,6 +247,27 @@ export class CappedOrgan {
     this._ws.copy(this.geometry.boundingSphere).applyMatrix4(this.surface.matrixWorld);
     this.capSize = this._ws.radius * 2.2;
 
+    // Suppress the cap unless the plane actually crosses this organ.
+    //
+    // Stencil capping assumes closed, manifold surfaces. These source meshes are
+    // not: after every repair the heart still carries tens of open edges, and an
+    // unbalanced back/front count paints the cap in places the organ is not — at
+    // worst 15,000 pixels of myocardium in a SUPRAPUBIC view, with the plane 50 cm
+    // away from the heart. That is what a ghostly duplicate of an organ floating
+    // across the image actually is.
+    //
+    // A bounding-box test cannot fix a leaky mesh, but it makes the failure local:
+    // if the plane misses the organ's box there is no cross-section to draw, so
+    // nothing can be painted. Cheap, exact for the gross case, and it does not
+    // require geometry the models cannot supply.
+    this._box ??= new THREE.Box3();
+    if (!this._geoBox) {
+      this.geometry.computeBoundingBox();
+      this._geoBox = this.geometry.boundingBox.clone();
+    }
+    this._box.copy(this._geoBox).applyMatrix4(this.surface.matrixWorld);
+    this.cut = this.plane.intersectsBox(this._box);
+
     // Centre the quad on THIS organ, not on the plane's closest point to the
     // world origin — otherwise anything far off-centre (a flank kidney, the
     // heart) drifts off the edge of its own cap and stops being capped at all.
@@ -266,6 +287,11 @@ export class CappedOrgan {
     this._toCam.copy(camera.position).sub(this._pos).normalize();
     const rank = this.depthRank + this.index / 64;
     this._pos.addScaledVector(this._toCam, COPLANAR_NUDGE * rank);
+
+    // `_wantCap` is what setMode asked for; `cut` is whether there is anything
+    // to draw. Both must hold.
+    this.cap.visible = this._wantCap && this.cut;
+    this.capGrey.visible = this.cut;
 
     for (const cap of [this.cap, this.capGrey]) {
       cap.position.copy(this._pos);
@@ -290,6 +316,7 @@ export class CappedOrgan {
     // draw call and disturbs nothing. In Mode 1's 3D pass they scribble on a
     // stencil buffer that no cap reads, and each pass starts with a clear.
     this.stencilGroup.visible = true;
+    this._wantCap = clipping;
     this.cap.visible = clipping;
     // The 2D panel is always a cross-section, even while the 3D view is in
     // Mode 1 — the side-by-side mapping is the whole pedagogical payload, so

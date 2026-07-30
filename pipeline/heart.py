@@ -66,6 +66,41 @@ def tri_count(ob):
     return sum(len(p.vertices) - 2 for p in ob.data.polygons)
 
 
+def repair(ob):
+    """
+    Weld, clean and close a mesh.
+
+    Every mesh in this model is leaky as supplied — 8 to 85 open edges each and
+    up to 123 non-manifold. Stencil capping counts back faces against front
+    faces over a closed solid, so an unbalanced count paints the cap in places
+    the organ is not: the heart was painting 15,000 pixels of myocardium into a
+    SUPRAPUBIC view, with the scan plane 50 cm away from it.
+
+    Holes are deliberately NOT filled here, unlike the abdomen and skeleton
+    pipelines. This heart's boundary loops ARE the valve annuli, and closing them
+    seals the chambers: filling them dropped the apical four-chamber view from
+    ~9,000 pixels of anechoic cavity to zero, turning the heart back into the
+    solid block that replacing it was meant to fix.
+
+    The residual leak is handled in the renderer instead — CappedOrgan skips the
+    cap entirely unless the scan plane actually crosses the organ's bounding box,
+    which localises the failure without needing geometry this model cannot give.
+    """
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=WELD_DIST)
+    loose = [v for v in bm.verts if not v.link_faces]
+    if loose:
+        bmesh.ops.delete(bm, geom=loose, context='VERTS')
+    bmesh.ops.dissolve_degenerate(bm, dist=WELD_DIST, edges=bm.edges)
+    open_e = sum(1 for e in bm.edges if len(e.link_faces) == 1)
+    nonman = sum(1 for e in bm.edges if len(e.link_faces) > 2)
+    bm.to_mesh(ob.data)
+    ob.data.update()
+    bm.free()
+    return open_e, nonman
+
+
 def rename(ob):
     low = ob.name.lower()
     for needle, new in RENAME:
@@ -164,6 +199,14 @@ def main():
         ob.data.name = ob.name
         log(f'{ob.name:28} {before:>7} -> {tri_count(ob):>7} tris')
 
+    # Close every mesh AFTER decimation, which can reopen seams.
+    leaky = 0
+    for ob in meshes:
+        o, n = repair(ob)
+        if o or n:
+            leaky += 1
+            log(f'{ob.name:28} still open={o} nonMan={n}')
+    log(f'repaired: {len(meshes)-leaky}/{len(meshes)} watertight')
     log(f'total {sum(tri_count(o) for o in meshes)} tris')
 
     bpy.ops.export_scene.gltf(

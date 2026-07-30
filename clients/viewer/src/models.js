@@ -103,6 +103,52 @@ const HEART_SEAT = heartTransform({
 });
 
 
+
+/**
+ * Scene layout — how the three anatomy groups sit relative to one another.
+ *
+ * Set in the browser with the ?edit=1 scene editor by someone who scans, and
+ * pasted here verbatim. These are GROUP transforms applied on top of each
+ * model's own import transform, deliberately kept as data rather than folded
+ * into the geometry: the editor's output maps onto this one-for-one, so the
+ * arrangement can be re-tuned without touching the pipeline, and the rotation
+ * order cannot silently drift between editing and shipping.
+ *
+ * Applied only to imported models. The primitive set was authored against the
+ * default capsule and is left at identity.
+ *
+ * Measured world sizes at these values, cm (L/R x sup/inf x ant/post):
+ *   organs  24.8 x 69.9 x 17.4   centre -1.1,  8.0, 1.6
+ *   heart   14.8 x 19.4 x 18.2   centre  1.7, 25.8, 3.1
+ *   bones   35.2 x 75.4 x 24.0   centre -0.9, 12.1, 1.7
+ */
+export const SCENE_LAYOUT = Object.freeze({
+  organs: {
+    position: [0.0000, 0.0000, 0.0000],
+    rotationDeg: [0.00, 0.00, 0.00],
+    // Anterior-posterior only. This multiplies ABDOMEN_ASPECT's 0.54, giving an
+    // effective 0.75 of source depth — my 0.54 compressed it too far.
+    scale: [1.0000, 1.0000, 1.3900],
+  },
+  heart: {
+    position: [0.0060, 0.0650, -0.0980],
+    rotationDeg: [23.50, 14.00, 6.50],
+    scale: 1.1100,
+  },
+  bones: {
+    position: [-0.0090, 0.0000, 0.0190],
+    rotationDeg: [0.00, 0.00, 0.00],
+    scale: [1.0150, 1.0000, 1.0450],
+  },
+});
+
+/** Identity, for the primitive set. */
+export const IDENTITY_LAYOUT = Object.freeze({
+  organs: { position: [0, 0, 0], rotationDeg: [0, 0, 0], scale: 1 },
+  heart: { position: [0, 0, 0], rotationDeg: [0, 0, 0], scale: 1 },
+  bones: { position: [0, 0, 0], rotationDeg: [0, 0, 0], scale: 1 },
+});
+
 /** Meshes that are scene furniture or instruments, not anatomy. */
 const DROP_PATTERNS = [
   /label/i,
