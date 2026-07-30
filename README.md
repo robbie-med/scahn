@@ -87,11 +87,11 @@ cross-room isolation, token-replay reconnect, coordinate conventions, stencil
 capping (capped myocardium with open chambers, no bleed), inverted-plane ghost
 pass, and 3D/2D laterality agreement.
 
-Anatomy models are selectable at runtime (Primitives / Abdomen / Liver-EUS).
+Anatomy models are selectable at runtime (Primitives / BodyParts3D).
 Imported meshes are repaired by the Blender pipeline before shipping — see
-`scripts/build-assets.sh`. The abdomen model's heart is replaced via a per-organ
-override with one that has genuine interior surfaces, so the cardiac chambers
-cap open rather than being invented.
+`scripts/build-assets.sh`. The BodyParts3D heart ships with separate cavity,
+wall and valve meshes, so the cardiac chambers cap open with real interior
+surfaces rather than being invented.
 
 Known gaps:
 
@@ -111,31 +111,18 @@ Known gaps:
 
 ## Licensing and attribution
 
-Application code is MIT. Model licences are separate and are **not** all
-compatible with how they are currently used. Full credits are in the in-app
-About panel (the ⓘ button) and in `clients/viewer/src/credits.js`.
+Application code is MIT. The anatomy model is **BodyParts3D** (full body,
+including cardiac chambers and valves), © The Database Center for Life Science,
+licensed [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/). It is
+repaired and re-exported as GLB by the Blender pipeline — a derivative work the
+licence permits, with attribution given in the in-app About panel (the ⓘ
+button) and in `clients/viewer/src/credits.js`.
 
-| Model | Author | Licence | Status |
-|---|---|---|---|
-| [Endosonographie_Darstellung der Leber](https://skfb.ly/6VsCT) | benbode | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | OK — attribution given |
-| [Abdomen Anatomy](https://sketchfab.com/3d-models/abdomen-anatomy-ed05d3b7b49b4014a09d7a9d62e4f421) | E-learning UMCG | [CC BY-NC-ND 4.0](http://creativecommons.org/licenses/by-nc-nd/4.0/) | **Unresolved** |
-| Human Heart (FBX) | not established | unknown | **Unresolved** |
-| Overview Skeleton | not established | unknown | **Unresolved** |
+Required attribution string:
 
-> ### ⚠️ The abdomen model is NoDerivatives
->
-> `CC BY-NC-ND 4.0` permits redistributing the file **verbatim** with
-> attribution for non-commercial use. It does **not** permit distributing a
-> modified version. This project repairs, re-meshes, derives lumens from and
-> re-exports that mesh, so the published `models/abdomen.glb` is a derivative
-> work and is outside the licence.
->
-> Options: obtain permission from E-learning UMCG, ship the original file
-> unmodified and accept the unrepaired meshes, or replace the model.
->
-> The heart and skeleton files carry no author or licence metadata at all, so
-> their provenance needs establishing before they are published.
+> BodyParts3D, © The Database Center for Life Science licensed under CC Attribution 4.0 International
 
-Every licence above was read from `asset.extras` embedded in the file itself,
-not from memory. Verify at the source rather than trusting this table — and
-note that a Sketchfab download button does not imply redistribution rights.
+The model is an adult **male** — there is no uterus/ovaries mesh. The legacy
+Sketchfab/FBX sources (including a CC BY-NC-ND abdomen and two files of unknown
+provenance) are retired to `3d_models/_ARCHIVE_legacy_LICENSING-UNRESOLVED/`
+and must not be redistributed.

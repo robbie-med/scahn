@@ -72,7 +72,11 @@ Z-up with +Y posterior, in millimeters.
 The correction is a **single named transform applied once**, in the Blender pipeline
 at import time:
 
-- `pipeline/pipeline.py` → `SOURCE_TO_SCAHN` (see `apply_source_correction()`)
+- `pipeline/bodyparts3d.py` → `SOURCE_TO_SCAHN`
+
+It covers axis rotation, mm→m, and the superior-inferior recentring: BP3D is
+authored with its origin at the feet, and the scene expects the torso centred on
+the origin (the shell fit pins `yCenter` to 0).
 
 **Never scatter axis fixes through runtime code.** If an organ loads mirrored, fix
 `SOURCE_TO_SCAHN` and rebuild the GLB. Do not add a compensating flip in the viewer.

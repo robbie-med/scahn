@@ -36,8 +36,9 @@ cd worker && npx wrangler dev --port 3105     # local Worker + Durable Object, s
 cd worker && npx wrangler deploy              # deploy to scahn.robbiemed.org
 
 ./scripts/build-assets.sh                     # Blender: repair 3d_models/*.glb -> clients/viewer/public/models/
-blender --background --factory-startup --python pipeline/heart.py -- IN.fbx OUT.glb
-blender --background --factory-startup --python pipeline/skeleton.py -- IN.glb OUT.glb
+# build-assets.sh drives pipeline/bodyparts3d.py, which also appends the five
+# abdominal-wall muscles BodyParts3D lacks from the Z-Anatomy blend.
+blender --background --factory-startup --python pipeline/bodyparts3d.py -- ISA_OBJ_DIR OUT.glb
 ```
 
 Tests are **integration tests against a running relay** and are transport-agnostic — the same
@@ -78,7 +79,7 @@ Four workspaces plus a Python asset pipeline.
 | `worker/` | Cloudflare Worker + Durable Object. Room pairing and fan-out. Also serves both clients. |
 | `relay/` | Legacy Node implementation of the same protocol. Offline dev path only. |
 | `clients/viewer/` | Three.js. The display. |
-| `pipeline/*.py` | Headless Blender asset repair. |
+| `pipeline/*.py` | Headless Blender asset repair. `bodyparts3d.py` builds the shipped GLB. |
 
 ### Relay: one Durable Object per room
 
@@ -132,25 +133,17 @@ Derive the clipping plane with `Plane.setFromNormalAndCoplanarPoint`. Never assi
 by hand — the sign error shows up as a plane offset by twice the probe's distance from the origin,
 which reads as a positioning bug.
 
-### Anatomy: registry, groups, and the scene editor
+### Anatomy: registry and groups
 
-`models.js` holds `MODELS` (primitives / abdomen / abdomen+skeleton / EUS-liver). Imported models
-get one **named** source transform applied once at import, plus:
+`models.js` holds `MODELS` (primitives / BodyParts3D). The BodyParts3D model is a single
+self-consistent source and the Blender pipeline bakes the source-axis correction into the
+GLB, so the viewer applies **no** import transform — no per-organ overrides, additions,
+aspect corrections or runtime scene layout. The primitive set paints first (instant,
+watertight); `main.js` swaps in `bodyparts3d` as soon as the download finishes.
 
-- `overrides` — replace matching meshes (the abdomen model's chamber-less heart)
-- `additions` — merge extra meshes in (the skeleton)
-- `ABDOMEN_ASPECT` — that model is stretched ~1.8× anterior-posterior against reference anatomy
-- `SCENE_LAYOUT` — per-group position/rotation/scale, **set in the browser, pasted in as data**
-
-The three groups (`organs`, `heart`, `bones`) hang off `THREE.Group` nodes in `main.js`, which is
-what makes them adjustable at runtime. **`/?edit=1` opens the scene editor** (`editor.js`): sliders
-per axis, live world-size readout in cm, and a *Log transforms* button emitting paste-ready
-`SCENE_LAYOUT`. Reconciling three unrelated anatomy sources is a clinical judgement — get the
-values from someone who scans rather than deriving them.
-
-Keep layout as data. Folding it into geometry loses the 1:1 mapping with the editor and lets the
-Euler order drift between editing and shipping. Apply the layout **before** fitting the skin shell,
-since it rescales the organs.
+The three groups (`organs`, `heart`, `bones`) hang off `THREE.Group` nodes in `main.js`.
+They stay at identity — they exist so capping and the bone shadow pass can treat the three
+anatomy classes separately.
 
 ### Asset pipeline (`pipeline/*.py`)
 
@@ -164,6 +157,11 @@ deletes the wall, which is how a trachea came back as unrecognisable tube.
   looking torn — raw open-edge counts run ~9× the true value.
 - **Dedupe signatures must include the bounding box.** Vertex+polygon counts alone collide for
   symmetric pairs and silently delete one side of the body (left/right kidney).
+- **Appending from another .blend has three traps**, all of which shipped silently before the
+  frame assertions caught them: `dst.objects = names` **aliases your list** and Blender rewrites it
+  in place with datablocks; paired `.l`/`.r` objects **share one mesh datablock**, so baking
+  `matrix_world` twice compounds; and an appended object reports an **identity `matrix_world`**
+  until `view_layer.update()`, so reading it early bakes raw local coordinates.
 - **`heart.py` must NOT hole-fill.** Its boundary loops *are* the valve annuli; closing them seals
   the chambers and turns the heart back into the solid block that replacing it was meant to fix.
 - Voxel remesh cannot close an open shell — it derives inside from outside and needs closed input.
@@ -175,9 +173,9 @@ deletes the wall, which is how a trachea came back as unrecognisable tube.
 
 Rendering bugs here do not show up in unit tests. Drive the deployed or local page in a browser
 and read pixels back. `window.scahn` exposes `THREE`, `state`, `organs`, `probe`, `scanPlane`,
-`ghostPlane`, `panel`, `skin`, `beam`, `renderer`, `camera3d`, `scene`, `GROUPS`, `torso()`,
+`ghostPlane`, `panel`, `skin`, `beam`, `renderer`, `camera3d`, `scene`, `torso()`,
 `rect2d()`/`rect3d()`, and `setModel` / `applyPreset` / `setMode` / `setDepth` / `setProbeType` /
-`refitTorso` / `renderFrame`. Note `renderFrame()` must be driven manually in a headless or
+`renderFrame`. Note `renderFrame()` must be driven manually in a headless or
 backgrounded tab, where `requestAnimationFrame` is paused. Established checks:
 
 - **Laterality, every time geometry changes.** Assert against *anatomy*, never node names: spleen
@@ -190,12 +188,23 @@ backgrounded tab, where `requestAnimationFrame` is paused. Established checks:
 
 ## Known state
 
-- **Licensing is unresolved for 3 of 4 models** and the site is public. The abdomen model is
-  CC BY-NC-**ND** and the pipeline redistributes a modified version; the heart and skeleton have no
-  provenance metadata at all. Only the EUS model (benbode, CC BY 4.0) is cleared. See the ⓘ About
-  panel and `credits.js`, which carry a per-model status. Record `UNKNOWN` rather than guessing.
+- The shipped model is **CC BY-SA 4.0 as a combined work**: BodyParts3D (DBCLS, CC BY 4.0)
+  plus five abdominal-wall muscles from Z-Anatomy (CC BY-SA 4.0), which BodyParts3D does not
+  contain at all. The share-alike rides on the combination. Both sources are credited in
+  `credits.js`. Note BodyParts3D's raw OBJ headers still name the pre-2025 CC BY-SA 2.1 JP
+  terms; the README (updated 2025-02-25) relicensed it to CC BY 4.0.
+- BodyParts3D is an **adult male** model, and has no female reproductive anatomy. Z-Anatomy
+  has none either — its female collections exist but contain zero meshes.
+- The probe rides the **real skin mesh** (`torso.js` raycasts it); the analytic capsule
+  remains only for the primitive set. Window presets are parameterised against that
+  surface, so changing the shell means re-tuning all eight.
+- The earlier per-model note: BodyParts3D — attribution
+  required, derivatives permitted. See the ⓘ About panel and `credits.js`, which carry a
+  per-model status. Record `UNKNOWN` rather than guessing. The earlier Sketchfab abdomen,
+  heart and skeleton sources under `3d_models/` are no longer shipped; their licences were
+  never resolved.
 - Window presets in `torso.js` are tuned by measuring how much target tissue each returns, **not
   clinically reviewed**.
-- The Abdomen+Skeleton variant's cardiac windows are largely shadow-swamped; the plain Abdomen
-  model reads healthy across all eight windows.
+- Rib shadows can swamp the cardiac windows; check all eight windows after any anatomy
+  change.
 - The pre-alpha "not anatomically accurate" banner stays until the anatomy is validated.

@@ -15,19 +15,18 @@ import { MODES, PRESET_LABELS, PRESET_PROBE } from '@scahn/protocol';
 import { assertHandedness, createFiducials, createRenderer, createScene } from './scene.js';
 import {
   TORSO, TORSO_DEFAULTS, WINDOWS, createTorsoMesh, fitTorsoTo, setTorso,
-  surfaceFrame, torsoCircumference,
+  setSkinSurface, surfaceFrame, torsoCircumference,
 } from './torso.js';
 import {
   BEAM_PROFILES, clampDepth, createBeam, createProbeModel, disposeBeam,
 } from './probe.js';
 import { buildOrgans } from './organs.js';
-import { IDENTITY_LAYOUT, MODELS, SCENE_LAYOUT, loadModel } from './models.js';
+import { MODELS, loadModel } from './models.js';
 import { CappedOrgan, LAYER_3D, updateScanPlane } from './capping.js';
 import { Panel2D } from './panel2d.js';
 import { ViewerLink } from './net.js';
 import { Stats, phoneUrl, renderQr, renderRoster } from './ui.js';
 import { initAbout } from './about.js';
-import { initEditor } from './editor.js';
 
 assertHandedness();
 
@@ -56,18 +55,15 @@ const skin = createTorsoMesh();
 scene.add(skin);
 
 /**
- * Per-group transform nodes.
- *
- * Organ geometry is baked into scene space at import, but the heart, the
- * abdominal viscera and the skeleton come from three different sources whose
- * relative scale, rotation and position all need adjusting. Parenting each group
- * under its own node makes that adjustable at runtime, which is what the scene
- * editor drives — and what gets baked back into the registry afterwards.
+ * Per-class parent nodes: abdominal viscera, heart, and bone. Geometry is
+ * baked into scene space at import, so these stay at identity — they exist so
+ * capping and the bone shadow pass can treat the three classes separately.
  */
 const GROUPS = {
   organs: new THREE.Group(),
   heart: new THREE.Group(),
   bones: new THREE.Group(),
+  muscles: new THREE.Group(),
 };
 for (const [name, g] of Object.entries(GROUPS)) {
   g.name = `group-${name}`;
@@ -80,13 +76,15 @@ const ghostPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
 
 /** @type {CappedOrgan[]} */
 let organs = [];
-/** Which registry entry is live. The primitive set stays the default: it loads
- *  instantly and is watertight by construction, so it remains the reference
- *  against which a capping bug is distinguished from a geometry bug. */
+/** Which registry entry is live. Starts on the primitive set, which paints
+ *  instantly and is watertight by construction, while the real anatomy
+ *  downloads; it remains the reference against which a capping bug is
+ *  distinguished from a geometry bug. */
 let modelId = 'primitives';
 let modelBusy = false;
 
 function buildFrom(list, ownsGeometry) {
+  GROUPS.muscles.visible = showMuscles;
   organs = list.map((o, i) => {
     const co = new CappedOrgan(o, scanPlane, ghostPlane, i);
     return co.addTo(GROUPS[co.group] ?? GROUPS.organs, scene);
@@ -98,6 +96,22 @@ function buildFrom(list, ownsGeometry) {
   organsOwnGeometry = ownsGeometry;
 }
 let organsOwnGeometry = false;
+
+/** Muscle is an optional layer: it is near-field context a learner scans
+ *  THROUGH, not a structure being measured, and it hides the viscera behind it.
+ *  Off by default so the tool opens on what it is actually teaching. */
+let showMuscles = false;
+
+function setMuscles(on) {
+  showMuscles = !!on;
+  GROUPS.muscles.visible = showMuscles;
+  const btn = document.getElementById('muscle-toggle');
+  if (btn) {
+    btn.classList.toggle('on', showMuscles);
+    btn.setAttribute('aria-pressed', String(showMuscles));
+  }
+  renderFrame();
+}
 
 /** World-space bounds of the non-bone anatomy, for refitting the skin shell. */
 function worldAnatomyBox() {
@@ -113,33 +127,14 @@ function worldAnatomyBox() {
   return box;
 }
 
-const DEG2RAD = Math.PI / 180;
-
-/** Apply a scene layout (the editor's output) to the three group nodes. */
-function applyLayout(layout) {
-  for (const [key, g] of Object.entries(GROUPS)) {
-    const t = layout[key];
-    if (!t) continue;
-    g.position.fromArray(t.position);
-    g.rotation.set(
-      t.rotationDeg[0] * DEG2RAD,
-      t.rotationDeg[1] * DEG2RAD,
-      t.rotationDeg[2] * DEG2RAD,
-    );
-    if (Array.isArray(t.scale)) g.scale.fromArray(t.scale);
-    else g.scale.setScalar(t.scale);
-  }
-  scene.updateMatrixWorld(true);
-}
-
 function tearDownOrgans() {
   for (const o of organs) o.dispose(scene, organsOwnGeometry);
   organs = [];
 }
 
 /**
- * Swap the anatomy. Imported models are fetched on demand, so a display that
- * only ever shows primitives never pays for the 10-15 MB download.
+ * Swap the anatomy. The imported model is fetched on demand, so the download
+ * never blocks the first paint of the primitives.
  */
 async function setModel(id) {
   if (modelBusy || id === modelId || !MODELS[id]) return;
@@ -148,22 +143,35 @@ async function setModel(id) {
   try {
     if (MODELS[id].builtin) {
       tearDownOrgans();
-      // Primitives were authored to the default capsule; restore both.
+      // Primitives were authored to the default capsule; restore both. Clearing
+      // the skin surface first puts surfaceFrame back on the analytic path
+      // before setTorso disposes the mesh it would otherwise still be casting
+      // rays against.
+      setSkinSurface(null);
       buildFrom(buildOrgans(), true);
-      applyLayout(IDENTITY_LAYOUT);
       setTorso(TORSO_DEFAULTS, skin);
       setModelStatus('');
     } else {
-      const { organs: list, credit, box } = await loadModel(id, {
+      const { organs: list, skinGeometry, credit, box } = await loadModel(id, {
         onProgress: (f) => setModelStatus(`Loading ${MODELS[id].label}… ${Math.round(f * 100)}%`),
       });
       tearDownOrgans();
       buildFrom(list, true);
-      // Layout first: it rescales the organs, so the shell must be fitted to
-      // where they actually end up, not to the raw import bounds.
-      applyLayout(SCENE_LAYOUT);
-      setTorso(fitTorsoTo(worldAnatomyBox()), skin);
-      setModelStatus(credit ? `${MODELS[id].label} — ${credit}` : '');
+      if (skinGeometry) {
+        // Ride the real body surface. setSkinSurface derives the radii from the
+        // mesh, so the capsule fit is not just unnecessary here, it would
+        // overwrite them with a guess.
+        skin.geometry.dispose();
+        skin.geometry = skinGeometry;
+        skin.updateMatrixWorld(true);
+        setSkinSurface(skin);
+      } else {
+        setSkinSurface(null);
+        setTorso(fitTorsoTo(worldAnatomyBox()), skin);
+      }
+      // `credit` already leads with the model name; prefixing the label
+      // again printed 'BodyParts3D — BodyParts3D — ...'.
+      setModelStatus(credit);
     }
     modelId = id;
   } catch (err) {
@@ -323,6 +331,13 @@ let rect2d = { x: 0, y: 0, w: 1, h: 1 };
 function layout() {
   const W = window.innerWidth;
   const H = window.innerHeight;
+  // A browser can report a zero-size window during first paint. Laying out then
+  // poisons the viewport rects with a negative width and nothing renders until
+  // something happens to fire a resize, so retry instead of storing garbage.
+  if (W <= 0 || H <= 0) {
+    requestAnimationFrame(layout);
+    return;
+  }
   renderer.setSize(W, H, false);
 
   if (W >= 900) {
@@ -389,7 +404,6 @@ function renderFrame() {
   probe.quaternion.copy(frame.quaternion).multiply(qPreset).multiply(state.current);
   probe.updateMatrixWorld(true);
 
-  // Group transforms feed the cap placement below, which reads world matrices.
   scene.updateMatrixWorld(true);
 
   updateScanPlane(probe, scanPlane, ghostPlane, state.invertClip);
@@ -499,27 +513,27 @@ const link = new ViewerLink({
 });
 
 buildFrom(buildOrgans(), true);
-applyLayout(IDENTITY_LAYOUT);
 setProbeType('curvilinear');
 setMode(MODES.RAY);
 renderModelChips();
+document.getElementById('muscle-toggle')
+  ?.addEventListener('click', () => setMuscles(!showMuscles));
+setMuscles(false);
 initAbout();
-initEditor({
-  GROUPS,
-  organs: () => organs,
-  refitTorso: () => setTorso(fitTorsoTo(worldAnatomyBox()), skin),
-  renderFrame,
-});
 applyPreset('aorta-transverse');
 layout();
 link.connect();
 tick();
+// Primitives are already on screen; swap in the real anatomy as soon as the
+// download finishes.
+setModel('bodyparts3d');
 
 // Handy for the browser-console smoke tests in scripts/smoke.md.
 window.scahn = {
   state, get organs() { return organs; }, probe, scanPlane, ghostPlane, panel, skin,
   get beam() { return beam; }, setDepth,
   renderer, camera3d, scene, setMode, applyPreset, setProbeType,
-  renderFrame, setModel, get modelId() { return modelId; }, torso: () => ({ ...TORSO }),
-  GROUPS, refitTorso: () => setTorso(fitTorsoTo(worldAnatomyBox()), skin), rect3d: () => rect3d, rect2d: () => rect2d, THREE,
+  renderFrame, setModel, setMuscles, get showMuscles() { return showMuscles; },
+  get modelId() { return modelId; }, torso: () => ({ ...TORSO }), circumference: torsoCircumference,
+  rect3d: () => rect3d, rect2d: () => rect2d, THREE,
 };

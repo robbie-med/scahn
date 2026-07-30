@@ -82,6 +82,7 @@ export class CappedOrgan {
     this.depthRank = organ.depthRank ?? 1;
     this.index = index;
     this.bone = organ.bone === true;
+    this.muscle = organ.muscle === true;
     this.group = organ.group ?? 'organs';
     this.plane = plane;
     this.geometry = organ.geometry;
@@ -242,8 +243,8 @@ export class CappedOrgan {
 
     // Take the bounding sphere through the mesh's WORLD matrix rather than using
     // the baked geometry-space copy. Geometry is pre-baked into scene space, but
-    // the scene editor parents each organ group under a transform node, so its
-    // world centre and radius can differ from the baked values.
+    // each organ is parented under a group node, so its world centre and radius
+    // can differ from the baked values if a group ever moves.
     this._ws.copy(this.geometry.boundingSphere).applyMatrix4(this.surface.matrixWorld);
     this.capSize = this._ws.radius * 2.2;
 

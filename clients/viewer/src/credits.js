@@ -2,10 +2,11 @@
  * Attribution and the how-it-works text.
  *
  * Every entry below is taken from metadata embedded in the asset file itself
- * (`asset.extras` in the GLB), not from memory or from a search. Where a file
- * carries no metadata the licence is recorded as UNKNOWN rather than guessed —
- * a wrong attribution is worse than an absent one, and spec section 11 asks
- * that terms be verified at the source rather than trusted from a summary.
+ * (`asset.extras` in the GLB) or from the source archive, not from memory or
+ * from a search. Where a file carries no metadata the licence is recorded as
+ * UNKNOWN rather than guessed — a wrong attribution is worse than an absent
+ * one, and spec section 11 asks that terms be verified at the source rather
+ * than trusted from a summary.
  *
  * `status` drives the warning banner in the panel:
  *   'ok'      cleared for publication as used here
@@ -15,50 +16,35 @@
 
 export const MODELS_CREDITS = [
   {
-    title: 'Endosonographie_Darstellung der Leber',
-    author: 'benbode',
-    authorUrl: 'https://sketchfab.com/benbode',
-    source: 'https://skfb.ly/6VsCT',
+    title: 'BodyParts3D (full body)',
+    author: 'The Database Center for Life Science',
+    source: 'https://dbarchive.biosciencedbc.jp/en/bodyparts3d/download.html',
     licence: 'CC BY 4.0',
     licenceUrl: 'http://creativecommons.org/licenses/by/4.0/',
-    used: 'The "Liver / EUS" model.',
+    used: 'The anatomy, including the cardiac chambers and valves, the skin '
+        + 'surface the probe rides on, and most of the muscle layer. Repaired '
+        + 'and re-exported as a Draco-compressed GLB by the Blender asset '
+        + 'pipeline.',
     status: 'ok',
-    note: 'Attribution required; derivatives permitted.',
+    note: 'Attribution required; derivatives permitted. Note the raw OBJ files '
+        + 'still carry a header naming CC BY-SA 2.1 Japan: that is the pre-2025 '
+        + 'licence. The database README (updated 2025-02-25) relicensed it to '
+        + 'CC BY 4.0, which is the grant relied on here.',
   },
   {
-    title: 'Abdomen Anatomy',
-    author: 'E-learning UMCG',
-    authorUrl: 'https://sketchfab.com/eLearningUMCG',
-    source: 'https://sketchfab.com/3d-models/abdomen-anatomy-ed05d3b7b49b4014a09d7a9d62e4f421',
-    licence: 'CC BY-NC-ND 4.0',
-    licenceUrl: 'http://creativecommons.org/licenses/by-nc-nd/4.0/',
-    used: 'The "Abdomen" model.',
-    status: 'review',
-    note: 'NoDerivatives. This project repairs and re-exports the mesh, which '
-        + 'makes the published file a derivative work. Verbatim redistribution '
-        + 'would be permitted; the processed version is not, without permission '
-        + 'from the author.',
-  },
-  {
-    title: 'Human Heart',
-    author: 'Not established',
-    source: 'Supplied as HumanHeart_FBX.fbx / Human_Heart.zip',
-    licence: 'UNKNOWN',
-    used: 'The detailed heart substituted into the Abdomen model.',
-    status: 'unknown',
-    note: 'The file carries no author or licence metadata (Autodesk Maya 2014 '
-        + 'export). Provenance needs establishing before publication.',
-  },
-  {
-    title: 'Overview Skeleton',
-    author: 'Not established',
-    source: 'Supplied as overview-skeleton.glb',
-    licence: 'UNKNOWN',
-    used: 'The "Abdomen + Skeleton" model — spine, ribs, sternum and pelvis.',
-    status: 'unknown',
-    note: 'Exported via Khronos glTF Blender I/O; no author or licence metadata. '
-        + 'Supplied as a hemi-skeleton (right side only); the left side is '
-        + 'mirrored by the asset pipeline.',
+    title: 'Z-Anatomy',
+    author: 'Gauthier Kervyn and contributors',
+    source: 'https://www.z-anatomy.com/',
+    licence: 'CC BY-SA 4.0',
+    licenceUrl: 'https://creativecommons.org/licenses/by-sa/4.0/',
+    used: 'Five muscles absent from BodyParts3D: rectus abdominis, internal '
+        + 'oblique, transversus abdominis, latissimus dorsi and quadratus '
+        + 'lumborum — the abdominal wall a learner scans through.',
+    status: 'ok',
+    note: 'ShareAlike. Because these meshes are combined with the BodyParts3D '
+        + 'geometry in a single shipped model, the resulting model is a '
+        + 'combined work distributed under CC BY-SA 4.0. Z-Anatomy is itself '
+        + 'derived from BodyParts3D.',
   },
 ];
 
@@ -108,13 +94,13 @@ export const HOW_IT_WORKS = [
   },
   {
     h: 'Bone and acoustic shadowing',
-    p: 'In the Abdomen + Skeleton model, bone behaves the way it does on a real '
-     + 'machine: the near cortical surface is the brightest thing in the image '
-     + 'and everything deep to it is shadow, because bone reflects nearly the '
-     + 'whole beam. This is the one acoustic effect the tool simulates, and it '
-     + 'is here because rib shadows are the reason the cardiac and right upper '
-     + 'quadrant windows sit where they do. Slide onto a rib and the image '
-     + 'disappears; slide into the interspace and it returns.',
+    p: 'Bone behaves the way it does on a real machine: the near cortical '
+     + 'surface is the brightest thing in the image and everything deep to it '
+     + 'is shadow, because bone reflects nearly the whole beam. This is the one '
+     + 'acoustic effect the tool simulates, and it is here because rib shadows '
+     + 'are the reason the cardiac and right upper quadrant windows sit where '
+     + 'they do. Slide onto a rib and the image disappears; slide into the '
+     + 'interspace and it returns.',
   },
   {
     h: 'What this is not',
