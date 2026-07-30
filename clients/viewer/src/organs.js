@@ -150,6 +150,7 @@ export function buildOrgans() {
     color: spec.color,
     capColor: spec.cap,
     greyColor: greyFor(spec),
+    group: /myocardium|^chamber-/.test(spec.name) ? 'heart' : 'organs',
     // Lumen caps must win the coplanar depth fight against their enclosing
     // wall's cap, otherwise the chamber vanishes into the myocardium.
     depthRank: spec.kind === LUMEN ? 2 : 1,

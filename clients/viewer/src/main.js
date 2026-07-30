@@ -27,6 +27,7 @@ import { Panel2D } from './panel2d.js';
 import { ViewerLink } from './net.js';
 import { Stats, phoneUrl, renderQr, renderRoster } from './ui.js';
 import { initAbout } from './about.js';
+import { initEditor } from './editor.js';
 
 assertHandedness();
 
@@ -54,6 +55,25 @@ scene.add(createFiducials());
 const skin = createTorsoMesh();
 scene.add(skin);
 
+/**
+ * Per-group transform nodes.
+ *
+ * Organ geometry is baked into scene space at import, but the heart, the
+ * abdominal viscera and the skeleton come from three different sources whose
+ * relative scale, rotation and position all need adjusting. Parenting each group
+ * under its own node makes that adjustable at runtime, which is what the scene
+ * editor drives — and what gets baked back into the registry afterwards.
+ */
+const GROUPS = {
+  organs: new THREE.Group(),
+  heart: new THREE.Group(),
+  bones: new THREE.Group(),
+};
+for (const [name, g] of Object.entries(GROUPS)) {
+  g.name = `group-${name}`;
+  scene.add(g);
+}
+
 // The live scan plane and its negation, mutated in place each frame.
 const scanPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 const ghostPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
@@ -67,7 +87,10 @@ let modelId = 'primitives';
 let modelBusy = false;
 
 function buildFrom(list, ownsGeometry) {
-  organs = list.map((o, i) => new CappedOrgan(o, scanPlane, ghostPlane, i).addTo(scene));
+  organs = list.map((o, i) => {
+    const co = new CappedOrgan(o, scanPlane, ghostPlane, i);
+    return co.addTo(GROUPS[co.group] ?? GROUPS.organs, scene);
+  });
   for (const o of organs) o.setMode(state.mode);
   // The shadow pass costs two extra renders and a composite, so it only runs
   // for models that actually contain bone.
@@ -75,6 +98,20 @@ function buildFrom(list, ownsGeometry) {
   organsOwnGeometry = ownsGeometry;
 }
 let organsOwnGeometry = false;
+
+/** World-space bounds of the non-bone anatomy, for refitting the skin shell. */
+function worldAnatomyBox() {
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  const tmp = new THREE.Box3();
+  for (const o of organs) {
+    if (o.bone) continue;
+    o.geometry.computeBoundingBox();
+    tmp.copy(o.geometry.boundingBox).applyMatrix4(o.surface.matrixWorld);
+    box.union(tmp);
+  }
+  return box;
+}
 
 function tearDownOrgans() {
   for (const o of organs) o.dispose(scene, organsOwnGeometry);
@@ -331,6 +368,9 @@ function renderFrame() {
   probe.quaternion.copy(frame.quaternion).multiply(qPreset).multiply(state.current);
   probe.updateMatrixWorld(true);
 
+  // Group transforms feed the cap placement below, which reads world matrices.
+  scene.updateMatrixWorld(true);
+
   updateScanPlane(probe, scanPlane, ghostPlane, state.invertClip);
 
   renderer.setScissorTest(true);
@@ -442,6 +482,12 @@ setProbeType('curvilinear');
 setMode(MODES.RAY);
 renderModelChips();
 initAbout();
+initEditor({
+  GROUPS,
+  organs: () => organs,
+  refitTorso: () => setTorso(fitTorsoTo(worldAnatomyBox()), skin),
+  renderFrame,
+});
 applyPreset('aorta-transverse');
 layout();
 link.connect();
@@ -452,5 +498,6 @@ window.scahn = {
   state, get organs() { return organs; }, probe, scanPlane, ghostPlane, panel, skin,
   get beam() { return beam; }, setDepth,
   renderer, camera3d, scene, setMode, applyPreset, setProbeType,
-  renderFrame, setModel, get modelId() { return modelId; }, torso: () => ({ ...TORSO }), rect3d: () => rect3d, rect2d: () => rect2d, THREE,
+  renderFrame, setModel, get modelId() { return modelId; }, torso: () => ({ ...TORSO }),
+  GROUPS, refitTorso: () => setTorso(fitTorsoTo(worldAnatomyBox()), skin), rect3d: () => rect3d, rect2d: () => rect2d, THREE,
 };

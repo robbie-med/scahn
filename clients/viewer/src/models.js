@@ -419,6 +419,10 @@ async function importGlb(loader, url, transform, onProgress) {
       capColor: spec.cap,
       greyColor: greyHex(spec.grey),
       bone: spec.bone === true,
+      // Editable group. The scene editor moves these three independently, and
+      // the values it produces are what get baked into the registry.
+      group: spec.bone === true ? 'bones'
+        : (/^heart-|myocardium|^chamber-/i.test(mesh.name || '') ? 'heart' : 'organs'),
       // Lumens must win the coplanar depth fight against any enclosing wall.
       depthRank: spec.kind === LUMEN ? 2 : 1,
     });

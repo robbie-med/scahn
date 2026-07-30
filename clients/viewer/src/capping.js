@@ -82,6 +82,7 @@ export class CappedOrgan {
     this.depthRank = organ.depthRank ?? 1;
     this.index = index;
     this.bone = organ.bone === true;
+    this.group = organ.group ?? 'organs';
     this.plane = plane;
     this.geometry = organ.geometry;
 
@@ -146,6 +147,9 @@ export class CappedOrgan {
     // Two of them over the same stencil: a colour cap for the 3D view and a
     // flat grey one for the 2D panel. Separated by layer, so exactly one draws
     // per pass and each carries its own stencil clear.
+    // Cap quads are positioned in world space every frame, so they must NOT
+    // inherit a group transform — that would rotate and scale the quad as well
+    // as move it. They are attached to the scene root by addTo's caller.
     this.cap = this._makeCap(organ.capColor, base + 1, LAYER_3D);
     this.cap.name = `${organ.name}-cap`;
     this.capGrey = this._makeCap(organ.greyColor ?? 0x808080, base + 2, LAYER_2D);
@@ -212,8 +216,19 @@ export class CappedOrgan {
     return mesh;
   }
 
-  addTo(scene) {
-    scene.add(this.stencilGroup, this.cap, this.capGrey, this.surface, this.ghost);
+  /**
+   * @param {THREE.Object3D} group per-group transform node (moves with edits)
+   * @param {THREE.Object3D} root  scene root (for things placed in world space)
+   *
+   * The geometry-bearing meshes go under the group so they follow its transform.
+   * The cap quads do NOT: they are positioned in world space every frame, and
+   * inheriting the group transform would rotate and scale the quad itself rather
+   * than just move it.
+   */
+  addTo(group, root = group) {
+    group.add(this.stencilGroup, this.surface, this.ghost);
+    root.add(this.cap, this.capGrey);
+    this.parent = group;
     return this;
   }
 
@@ -223,11 +238,19 @@ export class CappedOrgan {
     this._pos ??= new THREE.Vector3();
     this._look ??= new THREE.Vector3();
     this._toCam ??= new THREE.Vector3();
+    this._ws ??= new THREE.Sphere();
+
+    // Take the bounding sphere through the mesh's WORLD matrix rather than using
+    // the baked geometry-space copy. Geometry is pre-baked into scene space, but
+    // the scene editor parents each organ group under a transform node, so its
+    // world centre and radius can differ from the baked values.
+    this._ws.copy(this.geometry.boundingSphere).applyMatrix4(this.surface.matrixWorld);
+    this.capSize = this._ws.radius * 2.2;
 
     // Centre the quad on THIS organ, not on the plane's closest point to the
     // world origin — otherwise anything far off-centre (a flank kidney, the
     // heart) drifts off the edge of its own cap and stops being capped at all.
-    this.plane.projectPoint(this.capCenter, this._pos);
+    this.plane.projectPoint(this._ws.center, this._pos);
     this._look.copy(this._pos).add(this.plane.normal);
 
     // Every cap quad lies on the same plane, so without a per-organ offset the
@@ -280,8 +303,8 @@ export class CappedOrgan {
    *  per toggle. `disposeGeometry` is false for the primitive set, whose
    *  geometry is owned by the builder and reused. */
   dispose(scene, disposeGeometry = true) {
-    if (scene) {
-      scene.remove(this.stencilGroup, this.cap, this.capGrey, this.surface, this.ghost);
+    for (const o of [this.stencilGroup, this.surface, this.ghost, this.cap, this.capGrey]) {
+      o.parent?.remove(o);
     }
     this.surface.material.dispose();
     this.cap.material.dispose();
