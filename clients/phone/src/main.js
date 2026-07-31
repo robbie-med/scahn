@@ -351,6 +351,12 @@ function startSending() {
 // ---------------------------------------------------------------------------
 
 applyStatic();
+// Paint the JS-driven labels once at startup too. On a fresh load in a language
+// the browser already prefers, setLang() short-circuits (the language is
+// already current) and no listener fires — so anything whose text comes from
+// paintControl rather than from data-i18n would keep the English in the HTML.
+paintControl();
+renderDepth();
 initLangToggle($('lang-toggle'), () => {
   // The chip rows are built once from static arrays, so their labels have to be
   // rewritten in place rather than re-rendered — re-running chips() would drop

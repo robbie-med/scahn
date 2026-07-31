@@ -61,6 +61,13 @@ export const MODELS_CREDITS = [
 ];
 
 export const TOOLS_CREDITS = [
+  {
+    name: 'Noto Sans Arabic UI',
+    url: 'https://fonts.google.com/noto/specimen/Noto+Sans+Arabic',
+    licence: 'SIL OFL 1.1',
+    used: 'Arabic UI text. Subset to the Arabic Unicode blocks and self-hosted; '
+        + 'the licence text ships beside it at /fonts/LICENSE.txt.',
+  },
   { name: 'three.js', licence: 'MIT', url: 'https://threejs.org', used: 'WebGL rendering, clipping and stencil capping.' },
   { name: 'Draco', licence: 'Apache 2.0', url: 'https://google.github.io/draco/', used: 'Mesh compression; decoder runs in the browser.' },
   { name: 'Blender', licence: 'GPL', url: 'https://www.blender.org', used: 'Headless asset repair pipeline. Not redistributed.' },

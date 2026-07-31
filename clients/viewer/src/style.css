@@ -16,7 +16,7 @@ html, body {
   height: 100%;
   background: var(--bg);
   color: var(--ink);
-  font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 14px/1.45 "Noto Sans Arabic UI", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   overflow: hidden;
 }
 
@@ -230,4 +230,67 @@ html, body {
   background: var(--accent);
   border-color: var(--accent);
   color: #06101c;
+}
+
+/* ---- right-to-left (Arabic) ----------------------------------------------- */
+/*
+ * Only the TEXT direction flips. The overlay panels keep their physical
+ * positions deliberately:
+ *
+ *  - The canvas is never mirrored. Its two viewports are placed from
+ *    window.innerWidth in JS, and the 3D view puts the patient's left on the
+ *    viewer's right by radiological convention. Mirroring it would swap
+ *    laterality, which is the worst possible bug in an anatomy teaching tool.
+ *  - The 2D ultrasound panel occupies the right ~40% of the canvas, so moving
+ *    the pairing card to the right edge in RTL would park it on top of the
+ *    image the tool exists to show.
+ *
+ * So the chrome stays where it is and only reads right-to-left.
+ */
+[dir="rtl"] .chips { flex-direction: row-reverse; }
+[dir="rtl"] #stats { direction: rtl; }
+
+/* Codes, URLs and numeric readouts stay left-to-right in every language: a
+ * six-digit room code reversed is a different code. */
+[dir="rtl"] .code,
+[dir="rtl"] #pair-url,
+[dir="rtl"] #stats dd,
+[dir="rtl"] .sensor .rtt,
+[dir="rtl"] #smooth-val,
+[dir="rtl"] #move-gain-val { direction: ltr; unicode-bidi: isolate; }
+
+.chips.lang { flex-wrap: wrap; }
+
+/* ---- Arabic webfont -------------------------------------------------------
+ * Noto Sans Arabic UI, SIL Open Font License 1.1, subset to the Arabic blocks
+ * and served from this origin — no third-party font CDN, which would be a
+ * cross-origin request on a page whose whole security story is "one origin".
+ *
+ * The UI cut specifically, not plain Noto Sans Arabic: it has compressed
+ * vertical metrics so the taller Arabic letterforms do not blow out the line
+ * boxes in dense chrome like the badges, chips and the debug panel.
+ *
+ * `unicode-range` means the browser only downloads these 145 KB when Arabic
+ * codepoints are actually rendered, so the other five languages never pay for
+ * them. `font-display: swap` keeps text readable in the fallback while it loads.
+ */
+@font-face {
+  font-family: "Noto Sans Arabic UI";
+  src: url("/fonts/NotoSansArabicUI-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-089F, U+08A0-08FF,
+                 U+FB50-FDFF, U+FE70-FEFF, U+200C-200D, U+2010-2011,
+                 U+FD3E-FD3F, U+FDFD;
+}
+@font-face {
+  font-family: "Noto Sans Arabic UI";
+  src: url("/fonts/NotoSansArabicUI-Bold.woff2") format("woff2");
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-089F, U+08A0-08FF,
+                 U+FB50-FDFF, U+FE70-FEFF, U+200C-200D, U+2010-2011,
+                 U+FD3E-FD3F, U+FDFD;
 }

@@ -15,7 +15,7 @@ html, body {
   min-height: 100%;
   background: var(--bg);
   color: var(--ink);
-  font: 16px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 16px/1.45 "Noto Sans Arabic UI", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   /* The whole page is a control surface; scroll-to-refresh and text selection
      during a probe drag are both actively harmful here. */
   overscroll-behavior: none;
@@ -177,4 +177,50 @@ header { display: flex; gap: 8px; align-items: center; }
   background: var(--accent);
   border-color: var(--accent);
   color: #06101c;
+}
+
+/* ---- right-to-left (Arabic) ----------------------------------------------- */
+[dir="rtl"] .seg { flex-direction: row-reverse; }
+
+/* The room code is digits: reversed, it is a different code. Depth and other
+ * numeric readouts are isolated for the same reason. */
+[dir="rtl"] #room-input,
+[dir="rtl"] #room-pill,
+[dir="rtl"] #depth-val,
+[dir="rtl"] #status { direction: ltr; unicode-bidi: isolate; }
+
+.seg.lang { flex-wrap: wrap; }
+
+/* ---- Arabic webfont -------------------------------------------------------
+ * Noto Sans Arabic UI, SIL Open Font License 1.1, subset to the Arabic blocks
+ * and served from this origin — no third-party font CDN, which would be a
+ * cross-origin request on a page whose whole security story is "one origin".
+ *
+ * The UI cut specifically, not plain Noto Sans Arabic: it has compressed
+ * vertical metrics so the taller Arabic letterforms do not blow out the line
+ * boxes in dense chrome like the badges, chips and the debug panel.
+ *
+ * `unicode-range` means the browser only downloads these 145 KB when Arabic
+ * codepoints are actually rendered, so the other five languages never pay for
+ * them. `font-display: swap` keeps text readable in the fallback while it loads.
+ */
+@font-face {
+  font-family: "Noto Sans Arabic UI";
+  src: url("/fonts/NotoSansArabicUI-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-089F, U+08A0-08FF,
+                 U+FB50-FDFF, U+FE70-FEFF, U+200C-200D, U+2010-2011,
+                 U+FD3E-FD3F, U+FDFD;
+}
+@font-face {
+  font-family: "Noto Sans Arabic UI";
+  src: url("/fonts/NotoSansArabicUI-Bold.woff2") format("woff2");
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-089F, U+08A0-08FF,
+                 U+FB50-FDFF, U+FE70-FEFF, U+200C-200D, U+2010-2011,
+                 U+FD3E-FD3F, U+FDFD;
 }

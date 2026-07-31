@@ -26,7 +26,22 @@ export const LANGS = Object.freeze({
   fr: 'FR',
   zh: '中文',
   ru: 'RU',
+  ar: 'العربية',
 });
+
+/**
+ * Writing direction per language. Only the UI CHROME mirrors.
+ *
+ * The canvas must never flip. Its two viewports are placed in JS from
+ * window.innerWidth, and the 3D view deliberately puts the patient's left on
+ * the viewer's right (CONVENTIONS.md section 2 — radiological convention).
+ * Mirroring that would silently swap laterality, which in an anatomy teaching
+ * tool is the single worst bug available: a learner would be taught to look for
+ * the liver on the wrong side.
+ */
+export const LANG_DIR = Object.freeze({ ar: 'rtl' });
+
+export const dirOf = (code = lang) => LANG_DIR[code] ?? 'ltr';
 
 const STORAGE_KEY = 'scahn.lang';
 
@@ -592,6 +607,110 @@ const STRINGS = Object.freeze({
     'about.licenceReview': 'Проверка лицензии не завершена.',
     'about.licenceReviewBody': '{n} из {total} моделей не подтверждены для публикации в используемом здесь виде — см. примечания выше.',
   },
+  ar: {
+    'lang.switch': 'اللغة',
+    'preset.subxiphoid': 'تحت الناتئ الخنجري',
+    'preset.parasternal-long': 'المحور الطويل جانب القص',
+    'preset.parasternal-short': 'المحور القصير جانب القص',
+    'preset.apical-four-chamber': 'القمي رباعي الحجرات',
+    'preset.ruq-morison': 'الربع العلوي الأيمن / جيب موريسون',
+    'preset.luq-splenorenal': 'الربع العلوي الأيسر / الطحالي الكلوي',
+    'preset.suprapubic': 'فوق العانة',
+    'preset.aorta-transverse': 'الأبهر (مقطع عرضي)',
+    'probe.curvilinear': 'محدَّب',
+    'probe.phased': 'مصفوفة طورية',
+    'probe.linear': 'خطي',
+    'mode.short.1': '١ · شعاع',
+    'mode.short.2': '٢ · مقطع',
+    'mode.short.3': '٣ · شبحي',
+    'mode.1': 'الوضع ١ — شعاع',
+    'mode.2': 'الوضع ٢ — مقطع',
+    'mode.3': 'الوضع ٣ — شبحي',
+    'organ.Bone': 'عظم',
+    'organ.Muscle': 'عضلة',
+    'organ.Gallbladder lumen': 'لمعة المرارة',
+    'organ.Bladder lumen': 'لمعة المثانة',
+    'organ.Gallbladder wall': 'جدار المرارة',
+    'organ.Bladder wall': 'جدار المثانة',
+    'organ.Cardiac chamber': 'حجرة قلبية',
+    'organ.Valve': 'صمام',
+    'organ.Heart': 'قلب',
+    'organ.Liver': 'كبد',
+    'organ.Spleen': 'طحال',
+    'organ.Kidney': 'كلية',
+    'organ.Adrenal': 'غدة كظرية',
+    'organ.Pancreas': 'بنكرياس',
+    'organ.Uterus': 'رحم',
+    'organ.Ovary': 'مبيض',
+    'organ.Ureter': 'حالب',
+    'organ.Artery': 'شريان',
+    'organ.Vein': 'وريد',
+    'organ.Bowel': 'أمعاء',
+    'organ.Airway': 'مجرى هوائي',
+    'organ.Tissue': 'نسيج',
+    'viewer.title': 'Scahn — شاشة العرض',
+    'viewer.muscles': 'العضلات',
+    'viewer.musclesTitle': 'إظهار طبقة عضلات جدار الجسم',
+    'viewer.noWindow': 'لم يتم اختيار نافذة',
+    'viewer.freePlacement': 'وضع حر',
+    'viewer.prealphaBold': 'إصدار أولي — غير دقيق تشريحياً.',
+    'viewer.prealphaBody': 'أشكال الأعضاء ومواضعها بدائل هندسية للتدرب على تحريك المسبار فقط. لا تستخدمها في تعليم التشريح أو التعليم السريري.',
+    'viewer.prealpha': 'أشكال الأعضاء ومواضعها للتدرب على وضع المسبار، وليست للتشخيص.',
+    'viewer.aboutTitle': 'عن Scahn، الاعتمادات والتراخيص',
+    'viewer.scanQr': 'امسح هذا الرمز بتطبيق الكاميرا في هاتفك.',
+    'viewer.orOpen': 'أو افتح',
+    'viewer.andType': 'ثم أدخل الرمز.',
+    'viewer.debug': 'تصحيح',
+    'viewer.smoothing': 'التنعيم',
+    'viewer.moveGain': 'حساسية الحركة',
+    'viewer.invertClip': 'عكس جهة القطع',
+    'viewer.beamSector': 'قطاع الحزمة',
+    'viewer.waitingPhone': 'في انتظار اتصال هاتف…',
+    'viewer.driving': 'يتحكم',
+    'viewer.loading': 'جارٍ تحميل {model}…',
+    'viewer.loadingPct': 'جارٍ تحميل {model}… {pct}٪',
+    'viewer.loadFailed': 'تعذّر تحميل {model}. لا يزال يُعرض {current}.',
+    'viewer.model.primitives': 'أشكال أولية',
+    'viewer.model.bodyparts3d': 'BodyParts3D',
+    'phone.title': 'Scahn — المسبار',
+    'phone.tagline': 'هاتفك يصبح مسبار الموجات فوق الصوتية.',
+    'phone.prealpha': 'إصدار أولي.',
+    'phone.roomCode': 'رمز الغرفة',
+    'phone.connect': 'الاتصال وتفعيل مستشعر الحركة',
+    'phone.viewingOnly': 'عرض فقط',
+    'phone.youAreDriving': 'أنت تتحكم',
+    'phone.recenter': 'إعادة التمركز',
+    'phone.takeControl': 'أخذ التحكم',
+    'phone.placement': 'الموضع',
+    'phone.dragHint': 'اسحب لتحريك المسبار على الجلد.',
+    'phone.drag': 'اسحب',
+    'phone.dragPad': 'لوحة السحب',
+    'phone.moveInSpace': 'التحريك في الفراغ',
+    'phone.holdMove': 'اضغط مع الاستمرار وحرّك الهاتف',
+    'phone.window': 'النافذة',
+    'phone.transducer': 'المسبار',
+    'phone.depth': 'العمق',
+    'phone.viewMode': 'وضع العرض',
+    'phone.enterCode': 'أدخل الرمز المكوّن من ستة أرقام المعروض على الشاشة.',
+    'phone.httpsRequired': 'يجب تقديم هذه الصفحة عبر HTTPS للوصول إلى مستشعرات الحركة. افتح العنوان المُنفَّق وليس عنوان الشبكة المحلية.',
+    'phone.requestingMotion': 'جارٍ طلب الإذن بالوصول إلى مستشعرات الحركة…',
+    'phone.motionUnavailable': 'التحريك الفعلي غير متاح على هذا الجهاز — استخدم لوحة السحب.',
+    'phone.motionFailed': 'تعذّر تشغيل مستشعرات الحركة.',
+    'phone.recentred': 'تمت إعادة التمركز.',
+    'about.intro': 'أداة تعليمية لتقنية الفحص بالموجات فوق الصوتية. يعمل الهاتف كمسبار، وتعرض هذه الشاشة جنباً إلى جنب البنية التشريحية المقطوعة والمقطع المقابل لها.',
+    'about.how': 'كيف يعمل',
+    'about.models': 'النماذج',
+    'about.tools': 'الأدوات والمكتبات',
+    'about.by': 'بواسطة',
+    'about.prealphaWarn': 'إصدار أولي.',
+    'about.prealphaWarnBody': 'أشكال الأعضاء ومواضعها تقريبية، ولم تخضع النوافذ المُعدّة مسبقاً لمراجعة سريرية، ولا توجد محاكاة صوتية. لا تستخدمها في تعليم التشريح أو التعليم السريري.',
+    'about.models3d': 'النماذج ثلاثية الأبعاد',
+    'about.software': 'البرمجيات',
+    'about.source': 'الشيفرة المصدرية',
+    'about.sourceNote': '— شيفرة التطبيق مرخّصة بـ MIT. تراخيص النماذج مذكورة أعلاه وهي منفصلة.',
+    'about.licenceReview': 'مراجعة الترخيص غير مكتملة.',
+    'about.licenceReviewBody': '{n} من أصل {total} نماذج لم تُعتمد للنشر بالشكل المستخدم هنا — راجع الملاحظات أعلاه.',
+  },
 });
 
 function detect() {
@@ -617,7 +736,10 @@ export function setLang(next) {
   try {
     globalThis.localStorage?.setItem(STORAGE_KEY, lang);
   } catch { /* not fatal: the choice just will not survive a reload */ }
-  if (globalThis.document) globalThis.document.documentElement.lang = lang;
+  if (globalThis.document) {
+    globalThis.document.documentElement.lang = lang;
+    globalThis.document.documentElement.dir = dirOf(lang);
+  }
   for (const fn of listeners) fn(lang);
   return lang;
 }
@@ -705,5 +827,8 @@ export function initLangToggle(host, onChange) {
     applyStatic();
     onChange?.();
   });
-  if (globalThis.document) globalThis.document.documentElement.lang = getLang();
+  if (globalThis.document) {
+    globalThis.document.documentElement.lang = getLang();
+    globalThis.document.documentElement.dir = dirOf();
+  }
 }
