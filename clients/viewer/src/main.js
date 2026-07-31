@@ -28,7 +28,6 @@ import { Panel2D } from './panel2d.js';
 import { ViewerLink } from './net.js';
 import { Stats, phoneUrl, renderQr, renderRoster } from './ui.js';
 import { initAbout } from './about.js';
-import { RollToSlide } from './surfaceroll.js';
 
 assertHandedness();
 
@@ -103,18 +102,6 @@ let organsOwnGeometry = false;
  *  THROUGH, not a structure being measured, and it hides the viscera behind it.
  *  Off by default so the tool opens on what it is actually teaching. */
 let showMuscles = false;
-
-/** Roll-to-slide. Off by default: the drag pad is the known-good path, and this
- *  changes what the learner's wrist means. */
-function setRoll(on) {
-  roll.setEnabled(on, state.current, state.u);
-  const btn = document.getElementById('roll-toggle');
-  if (btn) {
-    btn.classList.toggle('on', roll.enabled);
-    btn.setAttribute('aria-pressed', String(roll.enabled));
-  }
-  renderFrame();
-}
 
 function setMuscles(on) {
   showMuscles = !!on;
@@ -242,8 +229,6 @@ const state = {
 };
 
 const frame = {};
-const roll = new RollToSlide();
-const qProbe = new THREE.Quaternion();
 const qPreset = new THREE.Quaternion();
 const qSpin = new THREE.Quaternion();
 const qTilt = new THREE.Quaternion();
@@ -284,7 +269,6 @@ function applyPreset(name) {
   if (!w) return;
   state.preset = name;
   state.u = w.u;
-  if (roll.enabled) roll.rebase(state.current, w.u);
   state.v = w.v;
   state.spin = w.spin;
   state.tilt = w.tilt;
@@ -320,9 +304,6 @@ function applyPhysicalMove([dx, dy]) {
 
   state.u = (((state.u + du) % 1) + 1) % 1; // wraps around the body
   state.v = Math.min(Math.max(state.v + dv, 0), 1); // clamps at head and hips
-  // The pad is an absolute offset on top of the roll mapping, so re-anchor
-  // rather than letting the next frame snap the probe back.
-  if (roll.enabled) roll.rebase(state.current, state.u);
   leaveWindow();
 }
 
@@ -418,20 +399,12 @@ function renderFrame() {
   state.current.slerp(state.target, state.smoothing);
 
   // probeWorld = surfaceFrame(u,v) . presetRotation . sensorQuaternion
-  // Roll-to-slide consumes the twist about the phone's long axis as movement
-  // around the torso, so the surface frame must be recomputed from the new u
-  // BEFORE it is used, and the probe must receive only the swing — applying the
-  // twist again would rotate it twice as fast as the hand.
-  const rolledU = roll.update(state.current, state.u);
-  if (rolledU !== null) state.u = rolledU;
-  qProbe.copy(roll.enabled ? roll.swing : state.current);
-
   surfaceFrame(state.u, state.v, frame);
   probe.position.copy(frame.position);
   qSpin.setFromAxisAngle(AXIS_Y, state.spin);
   qTilt.setFromAxisAngle(AXIS_X, state.tilt);
   qPreset.copy(qSpin).multiply(qTilt);
-  probe.quaternion.copy(frame.quaternion).multiply(qPreset).multiply(qProbe);
+  probe.quaternion.copy(frame.quaternion).multiply(qPreset).multiply(state.current);
   probe.updateMatrixWorld(true);
 
   scene.updateMatrixWorld(true);
@@ -551,7 +524,6 @@ initLangToggle(document.getElementById('lang-toggle'), () => {
   // JS, and the two badges whose text is derived from live state.
   renderModelChips();
   setMuscles(showMuscles);
-  setRoll(roll.enabled);
   windowNameEl.textContent = state.preset
     ? tPreset(state.preset) : t('viewer.freePlacement');
   modeNameEl.textContent = t(`mode.${state.mode}`);
@@ -562,9 +534,6 @@ initLangToggle(document.getElementById('lang-toggle'), () => {
 renderModelChips();
 document.getElementById('muscle-toggle')
   ?.addEventListener('click', () => setMuscles(!showMuscles));
-document.getElementById('roll-toggle')
-  ?.addEventListener('click', () => setRoll(!roll.enabled));
-setRoll(false);
 setMuscles(false);
 initAbout();
 applyPreset('aorta-transverse');
@@ -581,7 +550,6 @@ window.scahn = {
   get beam() { return beam; }, setDepth,
   renderer, camera3d, scene, setMode, applyPreset, setProbeType,
   renderFrame, setModel, setMuscles, get showMuscles() { return showMuscles; },
-  setRoll, roll,
   get modelId() { return modelId; }, torso: () => ({ ...TORSO }), circumference: torsoCircumference,
   rect3d: () => rect3d, rect2d: () => rect2d, THREE,
 };
