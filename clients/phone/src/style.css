@@ -152,3 +152,29 @@ header { display: flex; gap: 8px; align-items: center; }
   touch-action: none; /* we handle the drag ourselves */
 }
 .pad.dragging { border-style: solid; border-color: var(--accent); color: var(--accent); }
+
+/* ---- language toggle ------------------------------------------------------ */
+/*
+ * Labelled in each language's own script, never translated: someone who cannot
+ * read the current language still has to be able to find the way back.
+ */
+.seg.lang {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin: 0 0 10px;
+}
+.seg.lang button {
+  flex: 0 0 auto;
+  padding: 5px 12px;
+  font-size: 12px;
+  border-radius: 999px;
+  border: 1px solid #2a323c;
+  background: transparent;
+  color: var(--muted, #8b98a8);
+}
+.seg.lang button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06101c;
+}

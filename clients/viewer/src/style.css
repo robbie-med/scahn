@@ -214,3 +214,20 @@ html, body {
 #stats dd { margin: 0; font-variant-numeric: tabular-nums; }
 
 .warn { color: #ffb454; }
+
+/* ---- language toggle ------------------------------------------------------ */
+/*
+ * Each language is labelled in its own script and never translated: someone who
+ * cannot read the current language still has to be able to find the way back.
+ */
+.chips.lang { margin-bottom: 10px; }
+.chips.lang button {
+  padding: 5px 10px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+.chips.lang button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06101c;
+}

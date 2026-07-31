@@ -11,6 +11,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { MODES, PRESET_LABELS, PRESET_PROBE } from '@scahn/protocol';
+import { applyStatic, initLangToggle, onLangChange, t, tPreset } from '@scahn/protocol/i18n';
 
 import { assertHandedness, createFiducials, createRenderer, createScene } from './scene.js';
 import {
@@ -139,7 +140,7 @@ function tearDownOrgans() {
 async function setModel(id) {
   if (modelBusy || id === modelId || !MODELS[id]) return;
   modelBusy = true;
-  setModelStatus(MODELS[id].builtin ? '' : `Loading ${MODELS[id].label}…`);
+  setModelStatus(MODELS[id].builtin ? '' : t('viewer.loading', { model: MODELS[id].label }));
   try {
     if (MODELS[id].builtin) {
       tearDownOrgans();
@@ -153,7 +154,8 @@ async function setModel(id) {
       setModelStatus('');
     } else {
       const { organs: list, skinGeometry, credit, box } = await loadModel(id, {
-        onProgress: (f) => setModelStatus(`Loading ${MODELS[id].label}… ${Math.round(f * 100)}%`),
+        onProgress: (f) => setModelStatus(
+          t('viewer.loadingPct', { model: MODELS[id].label, pct: Math.round(f * 100) })),
       });
       tearDownOrgans();
       buildFrom(list, true);
@@ -176,7 +178,8 @@ async function setModel(id) {
     modelId = id;
   } catch (err) {
     console.error('model load failed', err);
-    setModelStatus(`Could not load ${MODELS[id].label}. Still showing ${MODELS[modelId].label}.`);
+    setModelStatus(t('viewer.loadFailed',
+      { model: MODELS[id].label, current: MODELS[modelId].label }));
   } finally {
     modelBusy = false;
     renderModelChips();
@@ -270,14 +273,14 @@ function applyPreset(name) {
   state.spin = w.spin;
   state.tilt = w.tilt;
   setProbeType(PRESET_PROBE[name] ?? state.probeType);
-  windowNameEl.textContent = PRESET_LABELS[name] ?? name;
+  windowNameEl.textContent = PRESET_LABELS[name] ? tPreset(name) : name;
 }
 
 /** Any manual placement means the learner has left the named window. */
 function leaveWindow() {
   if (!state.preset) return;
   state.preset = null;
-  windowNameEl.textContent = 'Free placement';
+  windowNameEl.textContent = t('viewer.freePlacement');
 }
 
 /**
@@ -318,7 +321,7 @@ function setMode(mode) {
 
   // Sector is a translucent surface in Mode 1, a thin outline in 2 and 3.
   if (beam) beam.userData.fill.visible = mode === MODES.RAY;
-  modeNameEl.textContent = { 1: 'Mode 1 — Ray', 2: 'Mode 2 — Cut', 3: 'Mode 3 — Ghost' }[mode];
+  modeNameEl.textContent = t(`mode.${mode}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -454,7 +457,7 @@ function renderModelChips() {
   for (const m of Object.values(MODELS)) {
     const b = document.createElement('button');
     b.type = 'button';
-    b.textContent = m.label;
+    b.textContent = t(`viewer.model.${m.id}`);
     b.title = m.note;
     b.className = m.id === modelId ? 'on' : '';
     b.disabled = modelBusy;
@@ -515,6 +518,19 @@ const link = new ViewerLink({
 buildFrom(buildOrgans(), true);
 setProbeType('curvilinear');
 setMode(MODES.RAY);
+applyStatic();
+initLangToggle(document.getElementById('lang-toggle'), () => {
+  // Everything the catalogue does not reach through data-i18n: labels built in
+  // JS, and the two badges whose text is derived from live state.
+  renderModelChips();
+  setMuscles(showMuscles);
+  windowNameEl.textContent = state.preset
+    ? tPreset(state.preset) : t('viewer.freePlacement');
+  modeNameEl.textContent = t(`mode.${state.mode}`);
+  link.refreshRoster?.();
+  initAbout();
+});
+
 renderModelChips();
 document.getElementById('muscle-toggle')
   ?.addEventListener('click', () => setMuscles(!showMuscles));

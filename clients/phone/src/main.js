@@ -3,6 +3,7 @@
  * control surface: orientation, probe placement, window presets, mode.
  */
 
+import { applyStatic, initLangToggle, t, tPreset } from '@scahn/protocol/i18n';
 import {
   DEPTH_LIMITS, LIMITS, MODES, PRESETS, PRESET_LABELS, PRESET_PROBE, PROBE_TYPES,
   clampDepth,
@@ -62,20 +63,19 @@ roomInput.addEventListener('input', () => {
 $('start').addEventListener('click', async () => {
   const room = roomInput.value.trim();
   if (!/^[0-9]{6}$/.test(room)) {
-    gateMsg.textContent = 'Enter the six-digit code shown on the display.';
+    gateMsg.textContent = t('phone.enterCode');
     gateMsg.classList.add('err');
     return;
   }
 
   if (!window.isSecureContext) {
-    gateMsg.textContent =
-      'This page must be served over HTTPS for motion access. Open the tunnelled URL, not a LAN address.';
+    gateMsg.textContent = t('phone.httpsRequired');
     gateMsg.classList.add('err');
     return;
   }
 
   gateMsg.classList.remove('err');
-  gateMsg.textContent = 'Requesting motion access…';
+  gateMsg.textContent = t('phone.requestingMotion');
 
   try {
     const backend = await orientation.start();
@@ -89,14 +89,14 @@ $('start').addEventListener('click', async () => {
       console.warn('translation unavailable:', err?.message ?? err);
       translationAvailable = false;
       $('move').disabled = true;
-      $('move-hint').textContent = 'Physical movement unavailable on this device — use the drag pad.';
+      $('move-hint').textContent = t('phone.motionUnavailable');
     }
     renderPlacementMode();
     gateMsg.textContent = '';
     connect(room, backend);
   } catch (err) {
     gateMsg.classList.add('err');
-    gateMsg.textContent = err?.message ?? 'Could not start motion sensors.';
+    gateMsg.textContent = err?.message ?? t('phone.motionFailed');
   }
 });
 
@@ -130,7 +130,7 @@ function connect(room, backend) {
  * phone at a frozen screen and concluding the tool is broken (spec 7.4).
  */
 function paintControl() {
-  statePill.textContent = state.driving ? 'You are driving' : 'Viewing only';
+  statePill.textContent = t(state.driving ? 'phone.youAreDriving' : 'phone.viewingOnly');
   statePill.classList.toggle('driving', state.driving);
   claimBtn.classList.toggle('hidden', state.driving);
 }
@@ -142,7 +142,7 @@ function paintControl() {
 $('recenter').addEventListener('click', () => {
   orientation.recenter();
   translation.release();
-  statusEl.textContent = 'Recentred.';
+  statusEl.textContent = t('phone.recentred');
 });
 
 // --- placement mode toggle --------------------------------------------------
@@ -163,7 +163,7 @@ function setPlacement(mode) {
 function renderPlacementMode() {
   const host = $('placement-mode');
   host.innerHTML = '';
-  for (const [id, label] of [['drag', 'Drag pad'], ['space', 'Move in space']]) {
+  for (const [id, label] of [['drag', t('phone.dragPad')], ['space', t('phone.moveInSpace')]]) {
     const b = document.createElement('button');
     b.type = 'button';
     b.textContent = label;
@@ -226,7 +226,7 @@ function chips(container, items, onPick, isOn) {
 
 chips(
   $('presets'),
-  PRESETS.map((id) => ({ id, label: PRESET_LABELS[id] ?? id })),
+  PRESETS.map((id) => ({ id, label: PRESET_LABELS[id] ? tPreset(id) : id })),
   (id) => {
     state.pendingPreset = id;
     // A window implies its usual transducer. The phone has to adopt it too:
@@ -241,7 +241,7 @@ chips(
 
 const repaintProbes = chips(
   $('probes'),
-  PROBE_TYPES.map((id) => ({ id, label: id })),
+  PROBE_TYPES.map((id) => ({ id, label: t(`probe.${id}`) })),
   (id) => { state.probe = id; renderDepth(); },
   (id) => id === state.probe,
 );
@@ -275,9 +275,9 @@ renderDepth();
 chips(
   $('modes'),
   [
-    { id: String(MODES.RAY), label: '1 · Ray' },
-    { id: String(MODES.CUT), label: '2 · Cut' },
-    { id: String(MODES.GHOST), label: '3 · Ghost' },
+    { id: String(MODES.RAY), label: t('mode.short.1') },
+    { id: String(MODES.CUT), label: t('mode.short.2') },
+    { id: String(MODES.GHOST), label: t('mode.short.3') },
   ],
   (id) => {
     state.mode = Number(id);
@@ -345,3 +345,28 @@ function startSending() {
     }
   }, Math.round(1000 / LIMITS.SEND_HZ));
 }
+
+// ---------------------------------------------------------------------------
+// language
+// ---------------------------------------------------------------------------
+
+applyStatic();
+initLangToggle($('lang-toggle'), () => {
+  // The chip rows are built once from static arrays, so their labels have to be
+  // rewritten in place rather than re-rendered — re-running chips() would drop
+  // the click handlers the control rows depend on.
+  for (const [host, labels] of [
+    ['presets', PRESETS.map((id) => (PRESET_LABELS[id] ? tPreset(id) : id))],
+    ['probes', PROBE_TYPES.map((id) => t(`probe.${id}`))],
+    ['modes', [t('mode.short.1'), t('mode.short.2'), t('mode.short.3')]],
+  ]) {
+    const btns = $(host)?.querySelectorAll('button') ?? [];
+    btns.forEach((b, i) => { if (labels[i] != null) b.textContent = labels[i]; });
+  }
+  for (const [id, key] of [['drag', 'phone.dragPad'], ['space', 'phone.moveInSpace']]) {
+    const b = document.querySelector(`[data-id="${id}"]`);
+    if (b) b.textContent = t(key);
+  }
+  paintControl();
+  renderDepth();
+});

@@ -2,6 +2,7 @@
  * Pairing panel, roster, and the debug readout.
  */
 
+import { t } from '@scahn/protocol/i18n';
 import qrcode from 'qrcode-generator';
 
 /**
@@ -29,7 +30,8 @@ export function renderRoster(el, roster) {
   if (!roster || roster.sensors.length === 0) {
     const p = document.createElement('div');
     p.className = 'sensor';
-    p.innerHTML = '<span class="dot"></span><span class="name">Waiting for a phone…</span>';
+    p.innerHTML = '<span class="dot"></span><span class="name"></span>';
+    p.querySelector('.name').textContent = t('viewer.waitingPhone');
     el.appendChild(p);
     return;
   }
@@ -38,7 +40,7 @@ export function renderRoster(el, roster) {
     row.className = `sensor${s.active ? ' active' : ''}`;
     const rtt = s.rtt == null ? '' : `${s.rtt} ms`;
     row.innerHTML = `<span class="dot"></span><span class="name"></span><span class="rtt"></span>`;
-    row.querySelector('.name').textContent = s.name + (s.active ? ' — driving' : '');
+    row.querySelector('.name').textContent = s.name + (s.active ? ` — ${t('viewer.driving')}` : '');
     row.querySelector('.rtt').textContent = rtt;
     el.appendChild(row);
   }

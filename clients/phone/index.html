@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
     <meta name="theme-color" content="#0b0d10" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <title>Scahn — Probe</title>
+    <title data-i18n="phone.title">Scahn — Probe</title>
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
@@ -13,19 +13,20 @@
          gesture in a secure context, so the very first thing is a big button. -->
     <section id="gate" class="screen">
       <h1>Scahn</h1>
-      <p class="lede">Your phone becomes the ultrasound probe.</p>
+      <div id="lang-toggle" class="seg lang"></div>
+      <p class="lede" data-i18n="phone.tagline">Your phone becomes the ultrasound probe.</p>
       <p class="disclaimer">
-        <b>Pre-alpha.</b> Anatomy shown is a geometric placeholder, not
+        <b data-i18n="phone.prealpha">Pre-alpha.</b> Anatomy shown is a geometric placeholder, not
         anatomically accurate. For probe-handling testing only.
       </p>
 
       <label class="field">
-        <span>Room code</span>
+        <span data-i18n="phone.roomCode">Room code</span>
         <input id="room-input" inputmode="numeric" pattern="[0-9]*" maxlength="6"
                placeholder="000000" autocomplete="off" />
       </label>
 
-      <button id="start" class="primary">Connect &amp; enable motion</button>
+      <button id="start" class="primary" data-i18n="phone.connect">Connect &amp; enable motion</button>
       <p id="gate-msg" class="msg"></p>
     </section>
 
@@ -36,17 +37,17 @@
         <span id="room-pill" class="pill muted"></span>
       </header>
 
-      <button id="recenter" class="primary big">Recenter</button>
-      <button id="claim" class="ghost hidden">Take control</button>
+      <button id="recenter" class="primary big" data-i18n="phone.recenter">Recenter</button>
+      <button id="claim" class="ghost hidden" data-i18n="phone.takeControl">Take control</button>
 
       <div class="group">
-        <div class="group-label">Placement</div>
+        <div class="group-label" data-i18n="phone.placement">Placement</div>
         <div id="placement-mode" class="chips"></div>
 
         <!-- Drag mode: the original implementation. -->
         <div id="pane-drag">
-          <div class="movehint">Drag to slide the probe on the skin.</div>
-          <div id="pad" class="pad"><span>drag</span></div>
+          <div class="movehint" data-i18n="phone.dragHint">Drag to slide the probe on the skin.</div>
+          <div id="pad" class="pad"><span data-i18n="phone.drag">drag</span></div>
         </div>
 
         <!-- Space mode. Hold-to-move is a clutch, not a switch: releasing
@@ -54,7 +55,7 @@
              single stroke. Without it the probe wanders off the body in
              seconds, which is a property of the hardware, not a bug. -->
         <div id="pane-space" class="hidden">
-          <button id="move" class="move">Hold &amp; move the phone</button>
+          <button id="move" class="move" data-i18n="phone.holdMove">Hold &amp; move the phone</button>
           <div id="move-hint" class="movehint">
             Hold, move the phone across the body, release. Releasing re-anchors —
             like lifting a mouse. Tap Recenter if it drifts.
@@ -63,17 +64,17 @@
       </div>
 
       <div class="group">
-        <div class="group-label">Window</div>
+        <div class="group-label" data-i18n="phone.window">Window</div>
         <div id="presets" class="chips"></div>
       </div>
 
       <div class="group">
-        <div class="group-label">Transducer</div>
+        <div class="group-label" data-i18n="phone.transducer">Transducer</div>
         <div id="probes" class="chips"></div>
       </div>
 
       <div class="group">
-        <div class="group-label">Depth</div>
+        <div class="group-label" data-i18n="phone.depth">Depth</div>
         <div class="stepper">
           <button id="depth-down" type="button" aria-label="Decrease depth">&minus;</button>
           <span id="depth-val">20 cm</span>
@@ -82,7 +83,7 @@
       </div>
 
       <div class="group">
-        <div class="group-label">View mode</div>
+        <div class="group-label" data-i18n="phone.viewMode">View mode</div>
         <div id="modes" class="chips"></div>
       </div>
 

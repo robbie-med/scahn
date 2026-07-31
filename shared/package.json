@@ -5,6 +5,7 @@
   "type": "module",
   "main": "index.js",
   "exports": {
-    ".": "./index.js"
+    ".": "./index.js",
+    "./i18n": "./i18n.js"
   }
 }
