@@ -30,6 +30,19 @@ export const MODELS = Object.freeze({
     note: 'Geometric stand-ins. Watertight, instant, not anatomy.',
     builtin: true,
   },
+  'kvh-female-pelvis': {
+    id: 'kvh-female-pelvis',
+    label: 'Female pelvis',
+    note: 'Female pelvic anatomy from the Visible Korean sectioned-image set — '
+        + 'uterus, ovaries, vagina and the pelvic floor, none of which the '
+        + 'whole-body male model contains.',
+    url: 'models/kvh-female-pelvis.glb',
+    credit: 'Visible Korean (Ajou University) — PERMISSION PENDING, not for release',
+    // Hidden unless ?uncleared=1. The asset is licence-gated out of the build
+    // as well, so this is the second of two independent guards: a normal build
+    // has neither the file nor a way to ask for it.
+    uncleared: true,
+  },
   bodyparts3d: {
     id: 'bodyparts3d',
     label: 'BodyParts3D',
@@ -103,8 +116,21 @@ const CLASSES = [
   [/kidney|nier/i, { label: 'Kidney', color: 0x99604a, cap: 0xd08f70, grey: 0.44, kind: SOLID }],
   [/suprarenal|nebenniere|adrenal/i, { label: 'Adrenal', color: 0xa87a55, cap: 0xd6a878, grey: 0.50, kind: SOLID }],
   [/pancrea|pankreas/i, { label: 'Pancreas', color: 0xb8925a, cap: 0xe3bd82, grey: 0.55, kind: SOLID }],
-  [/uterus/i, { label: 'Uterus', color: 0xa8657f, cap: 0xd894ad, grey: 0.50, kind: SOLID }],
-  [/ovar/i, { label: 'Ovary', color: 0xb07f95, cap: 0xdda9bd, grey: 0.50, kind: SOLID }],
+  [/uterus/i, { label: 'Uterus', color: 0xa8657f, cap: 0xd894ad, grey: 0.53, kind: SOLID }],
+  [/ovar/i, { label: 'Ovary', color: 0xb07f95, cap: 0xdda9bd, grey: 0.46, kind: SOLID }],
+  // Female pelvic structures. 'urethra' must not be confused with 'ureter' —
+  // they differ by one letter and are different organs at different depths.
+  //
+  // Their greys must also be mutually distinct, which is not cosmetic: on a
+  // pelvic view the uterus, an ovary and the vagina are frequently in the same
+  // sector, and sharing a grey makes them one indistinguishable blob in exactly
+  // the window this model exists to teach. The values follow relative
+  // echogenicity — the vaginal stripe reads brighter than myometrium, an ovary
+  // slightly darker — and are placed in gaps in the ladder the other organs
+  // already occupy.
+  [/vagina/i, { label: 'Vagina', color: 0xa8657f, cap: 0xd894ad, grey: 0.62, kind: SOLID }],
+  [/urethra/i, { label: 'Urethra', color: 0x9c7f8f, cap: 0xcaa9b8, grey: 0.58, kind: SOLID }],
+  [/rectum/i, { label: 'Rectum', color: 0x9c8262, cap: 0xc7ad88, grey: 0.38, kind: SOLID }],
   [/urether|ureter/i, { label: 'Ureter', color: 0x8f9aa8, cap: 0xbcc6d2, grey: 0.45, kind: SOLID }],
   [/aorta|arter|pfortader/i, { label: 'Artery', color: 0xa33a3a, cap: 0xdc5f5f, grey: 0.05, kind: LUMEN }],
   [/vena|vein|vene/i, { label: 'Vein', color: 0x3a5aa3, cap: 0x6f92dc, grey: 0.05, kind: LUMEN }],

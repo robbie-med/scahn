@@ -39,6 +39,32 @@ export const MODELS_CREDITS = [
         + 'CC BY 4.0, which is the grant relied on here.',
   },
   {
+    title: 'Visible Korean — female pelvis',
+    author: 'Prof. Min Suk Chung and colleagues, Ajou University School of Medicine',
+    source: 'Browsing software (Female pelvis), Visible Korean project',
+    licence: 'UNKNOWN',
+    used: 'The female pelvis model: uterus, ovaries, vagina, urethra, bladder, '
+        + 'rectum, the pelvic floor and the bony pelvis, derived from the '
+        + 'segmented sectioned images.',
+    usedKo: '여성 골반 모델 — 자궁, 난소, 질, 요도, 방광, 직장, 골반저 및 골반뼈로, '
+          + '분할된 단면 영상에서 재구성했습니다.',
+    status: 'unknown',
+    note: 'PERMISSION PENDING — NOT FOR RELEASE. The browsing software carries '
+        + 'no licence, copyright or terms of any kind, so free distribution of '
+        + 'the viewer is not by itself a grant to extract the data, derive 3D '
+        + 'meshes and redistribute them. Written permission is being sought. '
+        + 'This model is built and used locally only and is excluded from the '
+        + 'repository until that permission arrives. The data also derives from '
+        + 'a cadaver donor, which is a reason for care independent of the '
+        + 'licensing question.',
+    noteKo: '사용 허가 대기 중 — 배포 불가. 브라우징 소프트웨어에는 라이선스나 '
+          + '저작권 표시가 전혀 없으므로, 뷰어의 무료 배포가 곧 데이터를 추출하여 '
+          + '3D 메시로 재구성하고 재배포할 권리를 의미하지는 않습니다. 서면 허가를 '
+          + '요청 중이며, 허가 전까지 이 모델은 로컬에서만 사용하고 저장소에서 '
+          + '제외합니다. 또한 이 데이터는 시신 기증자에게서 유래한 것으로, '
+          + '법적 문제와 별개로 신중히 다루어야 합니다.',
+  },
+  {
     title: 'Z-Anatomy',
     author: 'Gauthier Kervyn and contributors',
     source: 'https://www.z-anatomy.com/',

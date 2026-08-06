@@ -24,6 +24,20 @@ mkdir -p clients/viewer/public/draco
 cp "$DRACO_SRC"/draco_decoder.js "$DRACO_SRC"/draco_decoder.wasm \
    "$DRACO_SRC"/draco_wasm_wrapper.js clients/viewer/public/draco/
 
+# Licence-gated assets. The Visible Korean female pelvis is NOT cleared for
+# release, so it lives outside public/ and is copied in only on explicit
+# opt-in. Keeping it out of public/ rather than only out of git is deliberate:
+# .gitignore stops it reaching the repository, but a deploy builds from the
+# working tree, so an ignored file in public/ would ship anyway.
+UNCLEARED=3d_models/derived/kvh-female-pelvis.glb
+if [ "${SCAHN_UNCLEARED:-0}" = "1" ] && [ -f "$UNCLEARED" ]; then
+  echo "WARNING: including $UNCLEARED — permission is PENDING, do not deploy this build"
+  mkdir -p clients/viewer/public/models
+  cp "$UNCLEARED" clients/viewer/public/models/
+else
+  rm -f clients/viewer/public/models/kvh-female-pelvis.glb
+fi
+
 npm run build --workspace @scahn/viewer
 npm run build --workspace @scahn/phone
 

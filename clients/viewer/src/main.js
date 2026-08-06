@@ -454,7 +454,9 @@ function setModelStatus(text) {
 function renderModelChips() {
   const host = document.getElementById('model-chips');
   host.innerHTML = '';
+  const showUncleared = new URLSearchParams(location.search).has('uncleared');
   for (const m of Object.values(MODELS)) {
+    if (m.uncleared && !showUncleared) continue;
     const b = document.createElement('button');
     b.type = 'button';
     b.textContent = t(`viewer.model.${m.id}`);
