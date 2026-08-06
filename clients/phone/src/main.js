@@ -10,6 +10,7 @@ import {
 } from '@scahn/protocol';
 import { OrientationSource, guessDeviceName } from './orientation.js';
 import { TranslationSource } from './translation.js';
+import { FlowSource } from './opticalflow.js';
 import { SensorLink } from './net.js';
 
 const $ = (id) => document.getElementById(id);
@@ -26,13 +27,15 @@ const pad = $('pad');
 
 const orientation = new OrientationSource();
 const translation = new TranslationSource(orientation);
+const flow = new FlowSource(orientation);
 /** @type {SensorLink|null} */
 let link = null;
 
 const state = {
   driving: false,
-  /** 'drag' = the original touch-pad placement; 'space' = physically moving
-   *  the phone. Mutually exclusive so the two cannot fight over (u,v). */
+  /** 'drag' = the original touch-pad placement; 'space' = dead reckoning from
+   *  the IMU; 'flow' = optical flow from the front camera. Mutually exclusive
+   *  so no two sources can fight over (u,v). */
   placement: 'drag',
   probe: 'curvilinear',
   /** Imaging depth in metres, remembered per transducer as on a real machine. */
@@ -148,27 +151,66 @@ $('recenter').addEventListener('click', () => {
 // --- placement mode toggle --------------------------------------------------
 
 let translationAvailable = true;
+let flowAvailable = true;
 
-function setPlacement(mode) {
+/** The translation source behind the Move clutch for the current mode. */
+function activeSource() {
+  return state.placement === 'flow' ? flow : translation;
+}
+
+/** The pane-space hint as authored in the HTML (space mode); flow mode swaps
+ *  in its own, and switching back restores this. */
+const MOVE_HINT_DEFAULT = $('move-hint').textContent;
+
+async function setPlacement(mode) {
   if (mode === 'space' && !translationAvailable) return;
+  if (mode === 'flow' && !flowAvailable) return;
+
+  // The camera is requested lazily here rather than at the gate: it is a
+  // second permission prompt, and only flow mode needs it. The chip click is
+  // the user gesture getUserMedia requires.
+  if (mode === 'flow' && !flow.running) {
+    try {
+      await flow.start();
+    } catch (err) {
+      console.warn('optical flow unavailable:', err?.message ?? err);
+      flowAvailable = false;
+      $('move-hint').textContent = t('phone.cameraUnavailable');
+      renderPlacementMode();
+      return;
+    }
+  }
+  // Leaving flow mode releases the camera — an idle lens is a privacy and
+  // battery cost nobody asked for.
+  if (mode !== 'flow' && flow.running) flow.stop();
+
   state.placement = mode;
-  // Leaving space mode must drop the clutch, or a stroke in progress keeps
-  // integrating with no visible control to stop it.
-  if (mode !== 'space') releaseMove();
-  $('pane-drag').classList.toggle('hidden', mode !== 'drag');
-  $('pane-space').classList.toggle('hidden', mode !== 'space');
+  // Leaving a clutch mode must drop the clutch, or a stroke in progress keeps
+  // accumulating with no visible control to stop it.
+  if (mode === 'drag') releaseMove();
+  $('pane-drag').classList.toggle('hidden', mode === 'drag' ? false : true);
+  $('pane-space').classList.toggle('hidden', mode === 'drag' ? true : false);
+  $('move').disabled =
+    (mode === 'space' && !translationAvailable) || (mode === 'flow' && !flowAvailable);
+  $('move-hint').textContent =
+    mode === 'flow' ? t('phone.flowHint') : MOVE_HINT_DEFAULT;
   renderPlacementMode();
 }
 
 function renderPlacementMode() {
   const host = $('placement-mode');
   host.innerHTML = '';
-  for (const [id, label] of [['drag', t('phone.dragPad')], ['space', t('phone.moveInSpace')]]) {
+  for (const [id, label] of [
+    ['drag', t('phone.dragPad')],
+    ['space', t('phone.moveInSpace')],
+    ['flow', t('phone.glideCam')],
+  ]) {
     const b = document.createElement('button');
     b.type = 'button';
     b.textContent = label;
     b.className = state.placement === id ? 'on' : '';
-    b.disabled = id === 'space' && !translationAvailable;
+    b.disabled =
+      (id === 'space' && !translationAvailable) || (id === 'flow' && !flowAvailable);
     b.addEventListener('click', () => setPlacement(id));
     host.appendChild(b);
   }
@@ -184,14 +226,16 @@ const moveBtn = $('move');
 function engageMove(e) {
   if (moveBtn.disabled) return;
   e.preventDefault();
-  translation.engage();
+  activeSource().engage();
   moveBtn.classList.add('engaged');
   try { moveBtn.setPointerCapture(e.pointerId); } catch { /* not a pointer */ }
 }
 
 function releaseMove() {
-  if (!translation.enabled) return;
+  // Release both sources — cheap, and immune to the mode having been switched
+  // mid-stroke.
   translation.release();
+  flow.release();
   moveBtn.classList.remove('engaged');
 }
 
@@ -328,9 +372,10 @@ function startSending() {
       q: orientation.read(),
       surf: state.surfDirty ? [state.u, state.v] : null,
       // Displacement since the last frame, metres, recentered frame. Null
-      // unless the clutch is engaged and the phone actually moved — the viewer
-      // maps it onto the torso surface, since only the viewer knows the body.
-      dpos: translation.read(),
+      // unless the clutch is engaged and the source actually measured travel —
+      // the viewer maps it onto the torso surface, since only the viewer
+      // knows the body.
+      dpos: activeSource().read(),
       preset: state.pendingPreset,
       probe: state.probe,
       depth: currentDepth(),
@@ -369,7 +414,11 @@ initLangToggle($('lang-toggle'), () => {
     const btns = $(host)?.querySelectorAll('button') ?? [];
     btns.forEach((b, i) => { if (labels[i] != null) b.textContent = labels[i]; });
   }
-  for (const [id, key] of [['drag', 'phone.dragPad'], ['space', 'phone.moveInSpace']]) {
+  for (const [id, key] of [
+    ['drag', 'phone.dragPad'],
+    ['space', 'phone.moveInSpace'],
+    ['flow', 'phone.glideCam'],
+  ]) {
     const b = document.querySelector(`[data-id="${id}"]`);
     if (b) b.textContent = t(key);
   }
