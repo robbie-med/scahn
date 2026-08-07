@@ -20,10 +20,3 @@ pipeline/__pycache__/
 # clients/viewer/public/models/.
 3d_models/
 
-# Visible Korean female pelvis — LICENCE NOT CLEARED.
-# Permission to extract, derive meshes from and redistribute this data is being
-# sought in writing from Prof. Min Suk Chung / Ajou University. Until it is
-# granted the derived model must not enter the repository, because pushing it
-# is what would publish it. Rebuild locally with pipeline/kvh_pelvis.py then
-# pipeline/kvh_finish.py.
-clients/viewer/public/models/kvh-female-pelvis.glb

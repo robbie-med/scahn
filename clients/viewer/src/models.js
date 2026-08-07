@@ -37,11 +37,8 @@ export const MODELS = Object.freeze({
         + 'uterus, ovaries, vagina and the pelvic floor, none of which the '
         + 'whole-body male model contains.',
     url: 'models/kvh-female-pelvis.glb',
-    credit: 'Visible Korean (Ajou University) — PERMISSION PENDING, not for release',
-    // Hidden unless ?uncleared=1. The asset is licence-gated out of the build
-    // as well, so this is the second of two independent guards: a normal build
-    // has neither the file nor a way to ask for it.
-    uncleared: true,
+    credit: 'Visible Korean Human (VKH), Ajou University School of Medicine — '
+          + 'CC BY-NC 4.0 (non-commercial)',
   },
   bodyparts3d: {
     id: 'bodyparts3d',

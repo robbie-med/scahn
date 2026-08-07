@@ -39,30 +39,41 @@ export const MODELS_CREDITS = [
         + 'CC BY 4.0, which is the grant relied on here.',
   },
   {
-    title: 'Visible Korean — female pelvis',
-    author: 'Prof. Min Suk Chung and colleagues, Ajou University School of Medicine',
-    source: 'Browsing software (Female pelvis), Visible Korean project',
-    licence: 'UNKNOWN',
-    used: 'The female pelvis model: uterus, ovaries, vagina, urethra, bladder, '
-        + 'rectum, the pelvic floor and the bony pelvis, derived from the '
-        + 'segmented sectioned images.',
-    usedKo: '여성 골반 모델 — 자궁, 난소, 질, 요도, 방광, 직장, 골반저 및 골반뼈로, '
-          + '분할된 단면 영상에서 재구성했습니다.',
-    status: 'unknown',
-    note: 'PERMISSION PENDING — NOT FOR RELEASE. The browsing software carries '
-        + 'no licence, copyright or terms of any kind, so free distribution of '
-        + 'the viewer is not by itself a grant to extract the data, derive 3D '
-        + 'meshes and redistribute them. Written permission is being sought. '
-        + 'This model is built and used locally only and is excluded from the '
-        + 'repository until that permission arrives. The data also derives from '
-        + 'a cadaver donor, which is a reason for care independent of the '
-        + 'licensing question.',
-    noteKo: '사용 허가 대기 중 — 배포 불가. 브라우징 소프트웨어에는 라이선스나 '
-          + '저작권 표시가 전혀 없으므로, 뷰어의 무료 배포가 곧 데이터를 추출하여 '
-          + '3D 메시로 재구성하고 재배포할 권리를 의미하지는 않습니다. 서면 허가를 '
-          + '요청 중이며, 허가 전까지 이 모델은 로컬에서만 사용하고 저장소에서 '
-          + '제외합니다. 또한 이 데이터는 시신 기증자에게서 유래한 것으로, '
-          + '법적 문제와 별개로 신중히 다루어야 합니다.',
+    title: 'Visible Korean Human (VKH) — female pelvis',
+    author: 'Ajou University School of Medicine',
+    source: 'Visible Korean Human dataset — sectioned and segmented images of the female pelvis',
+    licence: 'CC BY-NC 4.0',
+    licenceUrl: 'https://creativecommons.org/licenses/by-nc/4.0/',
+    used: 'The female pelvis model — uterus, ovaries, vagina, urethra, bladder, '
+        + 'rectum, ureters, the pelvic floor and the bony pelvis — reconstructed '
+        + 'from the segmented sectioned images. This 3D pelvic model is a '
+        + 'derivative work based on the Visible Korean Human (VKH) dataset '
+        + 'created by Ajou University School of Medicine. It is distributed '
+        + 'under the Creative Commons Attribution-NonCommercial 4.0 '
+        + 'International (CC BY-NC 4.0) terms in alignment with the original '
+        + "dataset's terms of use. Non-commercial distribution and educational "
+        + 'use are permitted provided full attribution is retained.',
+    usedKo: '여성 골반 모델 — 자궁, 난소, 질, 요도, 방광, 직장, 요관, 골반저 및 '
+          + '골반뼈로, 분할된 단면 영상에서 재구성했습니다. 이 3D 골반 모델은 '
+          + '아주대학교 의과대학이 제작한 Visible Korean Human(VKH) 데이터셋에 '
+          + '기반한 2차 저작물이며, 원본 데이터셋의 이용 약관에 따라 CC BY-NC 4.0 '
+          + '조건으로 배포됩니다. 전체 출처 표시를 유지하는 한 비영리 배포와 '
+          + '교육적 사용이 허용됩니다.',
+    status: 'ok',
+    note: 'NON-COMMERCIAL. This model may not be used commercially, which is a '
+        + 'constraint on the project and not only on the file: if Scahn is ever '
+        + 'monetised, this model has to come out first. It is shipped as its own '
+        + 'GLB, separate from the BodyParts3D model — that separation is what '
+        + 'keeps NonCommercial here and ShareAlike there from colliding, since '
+        + 'they could not both be satisfied inside one combined work. The '
+        + 'underlying images derive from a body donor, whose gift made this '
+        + 'model possible.',
+    noteKo: '비영리 전용. 이 모델은 상업적으로 사용할 수 없으며, 이는 파일 하나가 '
+          + '아니라 프로젝트 전체에 대한 제약입니다. Scahn을 수익화한다면 이 모델을 '
+          + '먼저 제외해야 합니다. BodyParts3D 모델과는 별도의 GLB로 배포되며, '
+          + '이 분리 덕분에 여기의 비영리 조건과 저쪽의 동일조건변경허락이 '
+          + '충돌하지 않습니다. 두 조건은 하나의 결합 저작물 안에서 동시에 충족될 '
+          + '수 없기 때문입니다. 원본 영상은 시신 기증자에게서 유래했습니다.',
   },
   {
     title: 'Z-Anatomy',

@@ -270,6 +270,12 @@ than the wall deletes the wall, which is how a trachea came back as an unrecogni
   Tunnel (`scripts/tunnel.sh`), not from binding 0.0.0.0.
 - Room codes are server-assigned six digits; uniqueness is guaranteed because the DO itself
   rejects a colliding claim.
+- The female pelvis is **CC BY-NC 4.0** (Visible Korean Human, Ajou University School of
+  Medicine). **NonCommercial is a constraint on the project, not just on that file**: if Scahn
+  is ever monetised, `kvh-female-pelvis.glb` has to come out first. It ships as its OWN GLB,
+  separate from the BodyParts3D model, and that separation is load-bearing — NonCommercial
+  here and ShareAlike there cannot both be satisfied inside one combined work, so the two
+  models must never be merged into a single file.
 - The shipped model is **CC BY-SA 4.0 as a combined work**: BodyParts3D (DBCLS, CC BY 4.0)
   plus five abdominal-wall muscles from Z-Anatomy (CC BY-SA 4.0), which BodyParts3D does not
   contain at all. The share-alike rides on the combination. Both sources are credited in
