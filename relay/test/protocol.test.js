@@ -206,6 +206,74 @@ describe('reconnect', () => {
   });
 });
 
+describe('handoff', () => {
+  it('a phone joining after the driver has gone for good takes control', async () => {
+    const display = await open({ role: 'display' });
+    send(display, { type: 'create' });
+    const { room } = await until(display, (m) => m.type === 'created');
+
+    const first = await open({ role: 'sensor', room });
+    send(first, { type: 'join', role: 'sensor', room, name: 'first' });
+    assert.equal((await until(first, (m) => m.type === 'joined')).active, true);
+    first.close();
+    await sleep(300);
+
+    // Not a token replay: a different phone, not the old one resuming. The
+    // Worker once left the room with a dead driver here, so every later phone
+    // was "viewing only" until someone tapped Take control.
+    const second = await open({ role: 'sensor', room });
+    send(second, { type: 'join', role: 'sensor', room, name: 'second' });
+    const joined = await until(second, (m) => m.type === 'joined');
+    assert.equal(joined.active, true, 'the departed driver must not keep control');
+  });
+});
+
+describe('state echo', () => {
+  it('display state frames reach every phone and no display', async () => {
+    const display = await open({ role: 'display' });
+    send(display, { type: 'create' });
+    const { room } = await until(display, (m) => m.type === 'created');
+    const other = await open({ role: 'display', room });
+    await sleep(100);
+
+    const phone = await open({ role: 'sensor', room });
+    send(phone, { type: 'join', role: 'sensor', room, name: 'p' });
+    await until(phone, (m) => m.type === 'joined');
+
+    send(display, { type: 'state', u: 0.25, v: 0.5, preset: 'ruq-morison', probe: 'curvilinear', depth: 0.2, mode: 2 });
+    const st = await until(phone, (m) => m.type === 'state');
+    assert.equal(st.preset, 'ruq-morison');
+    assert.equal(st.u, 0.25);
+    await sleep(150);
+    assert.equal(other.inbox.filter((m) => m.type === 'state').length, 0, 'displays do not receive state');
+
+    // A phone cannot forge the display's state.
+    send(phone, { type: 'state', u: 0.9, v: 0.9 });
+    await sleep(150);
+    assert.equal(phone.inbox.filter((m) => m.type === 'state').length, 1);
+  });
+
+  it('rejects a state frame with an unknown window or an impossible depth', async () => {
+    const display = await open({ role: 'display' });
+    send(display, { type: 'create' });
+    await until(display, (m) => m.type === 'created');
+    send(display, { type: 'state', preset: 'not-a-window' });
+    assert.equal((await until(display, (m) => m.type === 'error')).code, 'bad_frame');
+    send(display, { type: 'state', depth: 2.0 });
+    await sleep(100);
+    assert.equal(display.inbox.filter((m) => m.type === 'error').length, 2);
+  });
+});
+
+describe('heartbeat', () => {
+  it('answers the byte-exact client ping with a pong', async () => {
+    const ws = await open({ role: 'display' });
+    ws.send('{"type":"ping"}');
+    const pong = await until(ws, (m) => m.type === 'pong');
+    assert.ok(pong);
+  });
+});
+
 describe('hardening', () => {
   it('rejects frames whose type is not on the allowlist', async () => {
     const ws = await open({ role: 'display' });

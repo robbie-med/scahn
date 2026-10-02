@@ -9,14 +9,17 @@
  * rendering, and the bug reports point at the wrong subsystem.
  */
 
+import { LIMITS, PING_FRAME } from '@scahn/protocol';
+
 const key = (room) => `scahn.phone.token.${room}`;
 
 export class SensorLink {
-  constructor({ room, name, onJoined, onRoster, onStatus }) {
+  constructor({ room, name, onJoined, onRoster, onState, onStatus }) {
     this.room = room;
     this.name = name;
     this.onJoined = onJoined ?? (() => {});
     this.onRoster = onRoster ?? (() => {});
+    this.onState = onState ?? (() => {});
     this.onStatus = onStatus ?? (() => {});
 
     this.id = null;
@@ -25,6 +28,8 @@ export class SensorLink {
     this.retry = 0;
     this.seq = 0;
     this._closed = false;
+    this._missedPongs = 0;
+    this._heartbeat = null;
 
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') this._ensure();
@@ -63,6 +68,7 @@ export class SensorLink {
     ws.onopen = () => {
       this.retry = 0;
       this.onStatus('connected');
+      this._startHeartbeat();
       this.send({
         type: 'join',
         role: 'sensor',
@@ -89,8 +95,14 @@ export class SensorLink {
         case 'roster':
           this.onRoster(msg);
           break;
+        case 'state':
+          this.onState(msg);
+          break;
         case 'ping':
           this.send({ type: 'pong', t: msg.t });
+          break;
+        case 'pong':
+          this._missedPongs = 0;
           break;
         case 'error':
           this.onStatus(`error: ${msg.code}`);
@@ -104,6 +116,7 @@ export class SensorLink {
     };
 
     ws.onclose = () => {
+      this._stopHeartbeat();
       this.onStatus('reconnecting…');
       if (this._closed) return;
       const delay = Math.min(400 * 2 ** this.retry++, 6000);
@@ -111,6 +124,26 @@ export class SensorLink {
     };
 
     ws.onerror = () => ws.close();
+  }
+
+  /** See ViewerLink._startHeartbeat: the Worker never pings, so the client
+   *  must, and a run of missed pongs is the only way a dead socket is found. */
+  _startHeartbeat() {
+    this._stopHeartbeat();
+    this._missedPongs = 0;
+    this._heartbeat = setInterval(() => {
+      if (this.ws?.readyState !== WebSocket.OPEN) return;
+      if (++this._missedPongs > LIMITS.MISSED_PONGS) {
+        this.ws.close();
+        return;
+      }
+      this.ws.send(PING_FRAME);
+    }, LIMITS.HEARTBEAT_MS);
+  }
+
+  _stopHeartbeat() {
+    if (this._heartbeat) clearInterval(this._heartbeat);
+    this._heartbeat = null;
   }
 
   get open() {

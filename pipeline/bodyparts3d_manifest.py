@@ -41,9 +41,13 @@ ORGANS = [
     ('chamber-lv', ['FJ2422'], False),
     ('chamber-ra', ['FJ2424'], False),
     ('chamber-la', ['FJ2425'], False),
-    ('heart-wall-ventricle', ['FJ2428'], False),
-    ('heart-wall-atrium-left', ['FJ2438'], False),
-    ('heart-wall-atrium-right', ['FJ2439'], False),
+    # ONE wall mesh. BodyParts3D ships the ventricular wall and each atrial
+    # wall as separate closed shells whose outer surfaces never meet, so the
+    # atria sat on the ventricles as unmerged lobes with a visible seam and the
+    # appendages jutted out of the silhouette. bodyparts3d.py fuses the three
+    # into a single epicardial surface (fuse_heart_wall); the chambers stay
+    # separate cavity meshes and are unaffected.
+    ('heart-wall', ['FJ2428', 'FJ2438', 'FJ2439'], True),
     ('heart-valve-mitral', ['FJ2420', 'FJ2432'], True),
     ('heart-valve-tricuspid', ['FJ2421', 'FJ2433', 'FJ2436'], True),
     ('heart-valve-aortic', ['FJ2426', 'FJ2431', 'FJ2435'], True),

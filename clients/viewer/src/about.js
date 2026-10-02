@@ -44,8 +44,8 @@ function creditHtml(m) {
   </p>`;
 }
 
-export function initAbout() {
-  const modal = document.getElementById('about');
+/** Fill the panel body in the current language. Safe to call repeatedly. */
+export function renderAbout() {
   const body = document.getElementById('about-body');
   const needsReview = MODELS_CREDITS.filter((m) => m.status !== 'ok');
 
@@ -72,8 +72,23 @@ export function initAbout() {
     <h3>${esc(t('about.source'))}</h3>
     <p>${link('https://github.com/robbie-med/scahn', 'github.com/robbie-med/scahn')}
     ${esc(t('about.sourceNote'))}</p>
+    <p>${link('paper/', t('about.paper'))}</p>
   `;
+}
 
+let wired = false;
+
+/**
+ * Render, and wire the open/close controls exactly once. Language changes
+ * call renderAbout() instead: re-running this on every switch stacked a fresh
+ * set of click and keydown listeners each time.
+ */
+export function initAbout() {
+  renderAbout();
+  if (wired) return;
+  wired = true;
+
+  const modal = document.getElementById('about');
   const open = () => modal.classList.remove('hidden');
   const close = () => modal.classList.add('hidden');
 

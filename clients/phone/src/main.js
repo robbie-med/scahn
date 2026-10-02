@@ -1,6 +1,15 @@
 /**
  * Phone entry point. The phone is purely an inertial sensor plus a small
  * control surface: orientation, probe placement, window presets, mode.
+ *
+ * The DISPLAY is the authority on probe state. It echoes (u, v, window,
+ * transducer, depth, mode) to every phone as a `state` frame, and this file
+ * adopts it — so the pad always drags from where the probe actually is, a
+ * phone that takes control does not overwrite the screen with stale settings,
+ * and a viewing-only phone's chips show what is on screen, not what it last
+ * tapped. The one subtlety is latency: an echo of our own change arrives a
+ * few frames late, so a value we changed ourselves in the last half second is
+ * not overwritten by the echo of its predecessor.
  */
 
 import { applyStatic, initLangToggle, t, tPreset } from '@scahn/protocol/i18n';
@@ -31,6 +40,10 @@ const flow = new FlowSource(orientation);
 /** @type {SensorLink|null} */
 let link = null;
 
+/** How long a local change wins over an echo from the display. Covers one
+ *  round trip plus the display's 100 ms echo throttle with room to spare. */
+const LOCAL_WINS_MS = 600;
+
 const state = {
   driving: false,
   /** 'drag' = the original touch-pad placement; 'space' = dead reckoning from
@@ -48,7 +61,12 @@ const state = {
   u: 0.0,
   v: 0.53,
   surfDirty: false,
+  /** Window to send once, on the next frame. */
   pendingPreset: null,
+  /** Window the display says it is showing (null = free placement). */
+  shownPreset: null,
+  /** When each thing was last changed HERE, for the echo guard. */
+  touched: { surf: 0, probe: 0, depth: 0, mode: 0, preset: 0 },
 };
 
 // Pre-fill from the QR deep link (?room=418306) so scanning lands paired.
@@ -116,6 +134,7 @@ function connect(room, backend) {
       state.driving = !!me?.active;
       paintControl();
     },
+    onState: adoptState,
     onStatus(s) {
       statusEl.textContent = `${s} · ${backend}`;
     },
@@ -138,13 +157,37 @@ function paintControl() {
   claimBtn.classList.toggle('hidden', state.driving);
 }
 
+/** Take the display's word for it, except where we changed it ourselves just
+ *  now (see LOCAL_WINS_MS) or a drag is in progress. */
+function adoptState(msg) {
+  const now = Date.now();
+  const stale = (k) => now - state.touched[k] > LOCAL_WINS_MS;
+  if (msg.u != null && msg.v != null && !dragging && stale('surf')) {
+    state.u = msg.u;
+    state.v = msg.v;
+  }
+  if (msg.probe && stale('probe')) state.probe = msg.probe;
+  if (msg.depth != null && stale('depth') && stale('probe')) {
+    state.depthByType[state.probe] = clampDepth(state.probe, msg.depth);
+  }
+  if (msg.mode && stale('mode')) state.mode = msg.mode;
+  if ('preset' in msg && stale('preset')) state.shownPreset = msg.preset;
+  repaintPresets();
+  repaintProbes();
+  repaintModes();
+  renderDepth();
+}
+
 // ---------------------------------------------------------------------------
 // controls
 // ---------------------------------------------------------------------------
 
 $('recenter').addEventListener('click', () => {
   orientation.recenter();
+  // Both clutches: a stroke in progress on either source must not survive a
+  // recentre, or the probe keeps sliding from a reference that just moved.
   translation.release();
+  flow.release();
   statusEl.textContent = t('phone.recentred');
 });
 
@@ -157,10 +200,6 @@ let flowAvailable = true;
 function activeSource() {
   return state.placement === 'flow' ? flow : translation;
 }
-
-/** The pane-space hint as authored in the HTML (space mode); flow mode swaps
- *  in its own, and switching back restores this. */
-const MOVE_HINT_DEFAULT = $('move-hint').textContent;
 
 async function setPlacement(mode) {
   if (mode === 'space' && !translationAvailable) return;
@@ -188,12 +227,12 @@ async function setPlacement(mode) {
   // Leaving a clutch mode must drop the clutch, or a stroke in progress keeps
   // accumulating with no visible control to stop it.
   if (mode === 'drag') releaseMove();
-  $('pane-drag').classList.toggle('hidden', mode === 'drag' ? false : true);
-  $('pane-space').classList.toggle('hidden', mode === 'drag' ? true : false);
+  $('pane-drag').classList.toggle('hidden', mode !== 'drag');
+  $('pane-space').classList.toggle('hidden', mode === 'drag');
   $('move').disabled =
     (mode === 'space' && !translationAvailable) || (mode === 'flow' && !flowAvailable);
   $('move-hint').textContent =
-    mode === 'flow' ? t('phone.flowHint') : MOVE_HINT_DEFAULT;
+    mode === 'flow' ? t('phone.flowHint') : t('phone.spaceHint');
   renderPlacementMode();
 }
 
@@ -268,25 +307,28 @@ function chips(container, items, onPick, isOn) {
   return repaint;
 }
 
-chips(
+const repaintPresets = chips(
   $('presets'),
   PRESETS.map((id) => ({ id, label: PRESET_LABELS[id] ? tPreset(id) : id })),
   (id) => {
     state.pendingPreset = id;
+    state.shownPreset = id;
+    state.touched.preset = Date.now();
     // A window implies its usual transducer. The phone has to adopt it too:
     // it sends `probe` on every frame, so leaving it stale would immediately
     // clobber the transducer the preset just selected on the viewer.
     state.probe = PRESET_PROBE[id] ?? state.probe;
+    state.touched.probe = Date.now();
     repaintProbes();
     renderDepth();
   },
-  (id) => id === state.pendingPreset,
+  (id) => id === state.shownPreset,
 );
 
 const repaintProbes = chips(
   $('probes'),
   PROBE_TYPES.map((id) => ({ id, label: t(`probe.${id}`) })),
-  (id) => { state.probe = id; renderDepth(); },
+  (id) => { state.probe = id; state.touched.probe = Date.now(); renderDepth(); },
   (id) => id === state.probe,
 );
 
@@ -299,6 +341,7 @@ function currentDepth() {
 function stepDepth(dir) {
   const lim = DEPTH_LIMITS[state.probe];
   state.depthByType[state.probe] = clampDepth(state.probe, currentDepth() + dir * lim.step);
+  state.touched.depth = Date.now();
   renderDepth();
 }
 
@@ -316,7 +359,7 @@ $('depth-down').addEventListener('click', () => stepDepth(-1));
 $('depth-up').addEventListener('click', () => stepDepth(1));
 renderDepth();
 
-chips(
+const repaintModes = chips(
   $('modes'),
   [
     { id: String(MODES.RAY), label: t('mode.short.1') },
@@ -325,6 +368,7 @@ chips(
   ],
   (id) => {
     state.mode = Number(id);
+    state.touched.mode = Date.now();
     link?.send({ type: 'mode', mode: state.mode });
   },
   (id) => Number(id) === state.mode,
@@ -351,6 +395,7 @@ pad.addEventListener('pointermove', (e) => {
   state.v = Math.min(Math.max(state.v - ((e.clientY - dragging.y) / rect.height) * 0.6, 0), 1);
   dragging = { x: e.clientX, y: e.clientY };
   state.surfDirty = true;
+  state.touched.surf = Date.now();
 });
 
 for (const ev of ['pointerup', 'pointercancel']) {
@@ -364,9 +409,22 @@ for (const ev of ['pointerup', 'pointercancel']) {
 // transmit loop — capped at 30 Hz; the viewer renders at 60 and interpolates
 // ---------------------------------------------------------------------------
 
+/** A viewing-only phone's orientation is dropped by the relay anyway, but
+ *  every frame still wakes the room's Durable Object. Keep the socket warm at
+ *  2 Hz instead and go to full rate the moment control arrives. */
+const IDLE_DIVISOR = 15;
+let frameNo = 0;
+
 function startSending() {
   setInterval(() => {
     if (!link?.open || !orientation.running) return;
+    frameNo++;
+    if (!state.driving && frameNo % IDLE_DIVISOR !== 0) {
+      // Still drain the clutch so a stroke made while viewing does not land
+      // as one giant jump when control arrives.
+      activeSource().read();
+      return;
+    }
 
     const payload = {
       q: orientation.read(),
@@ -383,11 +441,7 @@ function startSending() {
     link.sendOrient(payload);
 
     state.surfDirty = false;
-    if (state.pendingPreset) {
-      // A preset also implies its usual transducer; mirror the viewer's choice
-      // locally so the chip highlight does not lie.
-      state.pendingPreset = null;
-    }
+    state.pendingPreset = null;
   }, Math.round(1000 / LIMITS.SEND_HZ));
 }
 
@@ -421,6 +475,10 @@ initLangToggle($('lang-toggle'), () => {
   ]) {
     const b = document.querySelector(`[data-id="${id}"]`);
     if (b) b.textContent = t(key);
+  }
+  if (!$('move').disabled) {
+    $('move-hint').textContent =
+      state.placement === 'flow' ? t('phone.flowHint') : t('phone.spaceHint');
   }
   paintControl();
   renderDepth();

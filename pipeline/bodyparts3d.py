@@ -43,6 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bodyparts3d_manifest import BONES, MUSCLES, ORGANS, SKIN
 from pipeline import (
     HOLLOW,
+    MAX_REMESH_TRIS,
     NONMANIFOLD_LIMIT,
     fill_holes,
     log,
@@ -111,6 +112,33 @@ SKIN_TRI_BUDGET = 18000
 # They are near-field context, not the structures being measured, so they get a
 # small share of the budget.
 MUSCLE_TRI_BUDGET = 45000
+# Remesh ceiling for muscles only. They are decimated to MUSCLE_TRI_BUDGET
+# afterwards, so a large intermediate is build time rather than payload, and
+# it is what lets the thin sheet muscles close instead of shipping leaky: the
+# external intercostal is a 1.6 mm sheet over most of the thorax and needs a
+# ~1M-triangle intermediate at a voxel its walls survive (220k was not enough;
+# it was declined and shipped with 700 open edges).
+MUSCLE_REMESH_TRIS = 1_200_000
+
+# Bone, decimated per element before the join. 120k keeps the ribs, costal
+# cartilage and sternum — the structures that actually shadow a window — well
+# resolved while dropping the vertebral bodies and pelvis to what a flat cap
+# needs. The raw drop is 318k, 44% of the whole model.
+BONE_TRI_BUDGET = 120000
+# Per-organ ceiling. The diaphragm arrived at 68k triangles and the ventricle
+# wall at 45k, several times what a flat-grey cross-section can show. Valves
+# are exempt: they are thin shells whose free edges are the anatomy, and
+# collapse decimation on an open sheet eats the leaflets first.
+ORGAN_TRI_CAP = 20000
+
+# The three heart-wall shells (ventricles, left atrium, right atrium) are
+# joined by the manifest and then voxel-remeshed together at this size, in
+# millimetres, so they become one continuous epicardial surface instead of
+# three lobes resting on each other. 1 mm resolves the thinnest atrial wall
+# (2-3 mm) at the 2.5-voxel minimum the remesh needs to keep a wall, so the
+# cavities survive; the result is then smoothed and decimated to its budget.
+HEART_FUSE_VOXEL_MM = 1.0
+HEART_TRI_BUDGET = 24000
 
 # --- Z-Anatomy muscle top-up ------------------------------------------------
 #
@@ -193,11 +221,17 @@ def join_objects(objs, name):
     return merged
 
 
-def repair(ob):
+def repair(ob, max_tris=MAX_REMESH_TRIS):
     """
     Two-tier repair, same decision logic as pipeline.py's main flow, plus the
-    selection the modifier_apply gotcha needs (skeleton.py: a modifier_apply
-    on an object that is active but not SELECTED is a silent no-op).
+    selection the modifier_apply gotcha needs (a modifier_apply on an object
+    that is active but not SELECTED is a silent no-op).
+
+    `max_tris` raises the remesh ceiling for meshes that are decimated to a
+    budget afterwards (muscles): the sheet muscles — external intercostal,
+    external oblique — were declined at the default ceiling and shipped with
+    hundreds of open edges, which leak stencil across the panel whenever the
+    muscle layer is on.
     """
     if ob.name.startswith(VALVE_PREFIX):
         weld_and_clean(ob)
@@ -223,7 +257,7 @@ def repair(ob):
             return 'fixed'
         open_e, nonman, tris, area, vol = o2, n2, t2, a2, v2
 
-    voxel, est = plan_remesh(area, vol, tris)
+    voxel, est = plan_remesh(area, vol, tris, max_tris)
     thickness = (2.0 * vol / area) if area > 0 else 0.0
     if voxel is None:
         log(f'{ob.name[:38]:40} LEFT AS IMPORTED — {thickness:.2f}mm walls would '
@@ -386,6 +420,20 @@ def append_zanatomy_muscles(si_mid):
             ob.matrix_parent_inverse.identity()
             ob.matrix_basis.identity()
             ob.data.transform(mw)
+            # The .r side of each pair is the .l side under a MIRRORING object
+            # transform, and baking a negative-determinant matrix into the
+            # vertices reverses triangle winding. Left uncorrected, one side of
+            # every paired muscle shipped inside-out: its signed volume exactly
+            # cancelled the other side's (rectus abdominis +3584 mL / -3584 mL,
+            # net zero), the front-face-only ghost pass drew its far wall, and
+            # anything reading wall thickness from volume saw nothing. Flip the
+            # faces back, the same idiom the old skeleton mirror used.
+            if mw.determinant() < 0:
+                bm = bmesh.new()
+                bm.from_mesh(ob.data)
+                bmesh.ops.reverse_faces(bm, faces=bm.faces)
+                bm.to_mesh(ob.data)
+                bm.free()
             # No rotation, no scale: already metres in the pre-export frame.
             ob.data.transform(mathutils.Matrix.Translation((0.0, 0.0, -si_mid)))
             # Register onto the BodyParts3D body.
@@ -419,6 +467,63 @@ def decimate_to(ob, budget):
     return sum(len(p.vertices) - 2 for p in ob.data.polygons)
 
 
+def tri_count(ob):
+    return sum(len(p.vertices) - 2 for p in ob.data.polygons)
+
+
+def decimate_and_reclose(ob, budget):
+    """
+    Decimate to a budget, then weld and hole-fill.
+
+    Collapse decimation can reopen a seam, and an open shell leaks stencil into
+    every cap drawn after it (skeleton lesson: one leaky bone put a ghost of
+    the whole skeleton across the panel). So every decimated mesh is re-closed
+    while it is still a single shell, before any join.
+    """
+    before = tri_count(ob)
+    if before <= budget:
+        return before
+    decimate_to(ob, budget)
+    weld_and_clean(ob)
+    open_e, nonman, _, _, _ = mesh_stats(ob)
+    if open_e:
+        fill_holes(ob)
+        open_e, nonman, _, _, _ = mesh_stats(ob)
+    if open_e or nonman:
+        log(f'{ob.name[:38]:40} after decimate: open={open_e} nonMan={nonman}')
+    # Collapse decimation can leave degenerate loops the glTF exporter flags
+    # as "not valid, may be exported wrongly"; validate() removes them.
+    ob.data.validate(verbose=False)
+    ob.data.update()
+    return tri_count(ob)
+
+
+def fuse_heart_wall(ob):
+    """
+    Fuse the joined ventricle + atrial wall shells into one surface.
+
+    Voxel remesh of the union: where the shells overlap or touch, the
+    isosurface runs round the outside of both, so the atrio-ventricular seam
+    disappears and the heart reads as one organ. The shells are hollow (the
+    wall volume only, ~160 mL for the ventricles), and a 1 mm voxel is small
+    enough against the thinnest wall that the hollows — the chambers the
+    chamber-* meshes sit in — are preserved rather than filled.
+    """
+    before = tri_count(ob)
+    bpy.ops.object.select_all(action='DESELECT')
+    ob.select_set(True)
+    bpy.context.view_layer.objects.active = ob
+    voxel_remesh(ob, HEART_FUSE_VOXEL_MM)
+    mod = ob.modifiers.new(name='smooth', type='SMOOTH')
+    mod.iterations = 2
+    mod.factor = 0.5
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    after = decimate_and_reclose(ob, HEART_TRI_BUDGET)
+    o, n, _, _, vol = mesh_stats(ob)
+    log(f'{ob.name[:38]:40} fused @{HEART_FUSE_VOXEL_MM}mm  {before} -> {after} tris  '
+        f'vol={vol / 1000:.0f} mL  open={o} nonMan={n}')
+
+
 def scene_centre(ob):
     """World bbox centre converted to scene (glTF) axes: (b.x, b.z, -b.y)."""
     c = sum((mathutils.Vector(v) for v in ob.bound_box), mathutils.Vector()) / 8
@@ -435,9 +540,9 @@ def anatomical_assertions():
     """
     get = lambda name: scene_centre(bpy.data.objects[name])
     liver, spleen = get('liver'), get('spleen')
-    heart, bladder = get('heart-wall-ventricle'), get('bladder')
+    heart, bladder = get('heart-wall'), get('bladder')
     adr, adl = get('adrenal-right'), get('adrenal-left')
-    for name in ('liver', 'spleen', 'heart-wall-ventricle', 'bladder',
+    for name in ('liver', 'spleen', 'heart-wall', 'bladder',
                  'adrenal-right', 'adrenal-left'):
         c = get(name)
         log(f'  centre {name:22} ({c.x:+.4f}, {c.y:+.4f}, {c.z:+.4f}) m')
@@ -490,6 +595,21 @@ def main():
         bake_world(ob)
     for ob in bones:
         repair(ob)
+    # Decimate to a shared budget BEFORE joining, and re-close each element
+    # afterwards. The raw skeleton is 318k triangles — 44% of the whole model —
+    # and the viewer draws bone in up to seven passes a frame (surface, two
+    # stencil passes for each of the 3D, 2D and shadow-mask cameras, cap), so
+    # it was the single largest frame cost. Per element rather than on the
+    # joined mesh so a rib's share cannot be eaten by a vertebra, and before
+    # joining because collapse decimation can reopen a seam and the re-close
+    # has to see one closed shell at a time.
+    raw_b = {m.name: tri_count(m) for m in bones}
+    total_b = sum(raw_b.values()) or 1
+    for ob in bones:
+        share = max(400, int(BONE_TRI_BUDGET * raw_b[ob.name] / total_b))
+        decimate_and_reclose(ob, share)
+    log(f'bones: {sum(raw_b.values())} -> {sum(tri_count(m) for m in bones)} tris '
+        f'across {len(bones)} elements (budget {BONE_TRI_BUDGET})')
     skeleton = join_objects(bones, 'bone-skeleton')
     o, n, t, _, _ = mesh_stats(skeleton)
     log(f'{"bone-skeleton"[:38]:40} joined {len(bones)} elements: {t} tris, '
@@ -516,12 +636,12 @@ def main():
     # applied to whatever geometry actually ships.
     raw = {m.name: sum(len(p.vertices) - 2 for p in m.data.polygons) for m in muscles}
     for ob in muscles:
-        repair(ob)
+        repair(ob, MUSCLE_REMESH_TRIS)
     fixed = {m.name: sum(len(p.vertices) - 2 for p in m.data.polygons) for m in muscles}
     total = sum(fixed.values()) or 1
     for ob in muscles:
         share = max(600, int(MUSCLE_TRI_BUDGET * fixed[ob.name] / total))
-        after = decimate_to(ob, share)
+        after = decimate_and_reclose(ob, share)
         log(f'{ob.name[:38]:40} {raw[ob.name]:>7} raw -> {fixed[ob.name]:>6} repaired '
             f'-> {after:>6} tris')
     log(f'muscles: {len(muscles)} meshes, '
@@ -535,7 +655,18 @@ def main():
             continue
         result = repair(ob)
         counts[result] = counts.get(result, 0) + 1
+        if result != 'valve' and tri_count(ob) > ORGAN_TRI_CAP:
+            before = tri_count(ob)
+            after = decimate_and_reclose(ob, ORGAN_TRI_CAP)
+            log(f'{ob.name[:38]:40} capped {before} -> {after} tris')
     log('summary: ' + ', '.join(f'{k}={v}' for k, v in sorted(counts.items())))
+
+    # One heart, not three lobes: see HEART_FUSE_VOXEL_MM. After repair so the
+    # remesh sees closed input, before the lumen pass (which never touches the
+    # heart anyway).
+    heart_wall = bpy.data.objects.get('heart-wall')
+    if heart_wall is not None:
+        fuse_heart_wall(heart_wall)
 
     # Derive cavities for the hollow viscera. NEVER on any heart mesh — the
     # chamber meshes are already the cavities, and shrinking a wall inward
@@ -594,12 +725,12 @@ def main():
     z_muscles = append_zanatomy_muscles(si_mid)
     if z_muscles:
         for ob in z_muscles:
-            repair(ob)
+            repair(ob, MUSCLE_REMESH_TRIS)
         zf = {m.name: sum(len(p.vertices) - 2 for p in m.data.polygons) for m in z_muscles}
         ztotal = sum(zf.values()) or 1
         for ob in z_muscles:
             share = max(800, int(MUSCLE_TRI_BUDGET * zf[ob.name] / ztotal))
-            after = decimate_to(ob, share)
+            after = decimate_and_reclose(ob, share)
             log(f'{ob.name[:38]:40} {zf[ob.name]:>7} repaired -> {after:>6} tris')
         bpy.context.view_layer.update()
 

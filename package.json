@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Ultrasound scanning-technique teaching tool. Phone as inertial sensor, separate screen renders 3D anatomy + corresponding 2D cross-section.",
-  "license": "CC-BY-SA-4.0",
+  "license": "MIT",
   "workspaces": [
     "shared",
     "relay",
@@ -19,7 +19,8 @@
     "dev:phone": "npm run dev --workspace @scahn/phone",
     "build": "npm run build --workspace @scahn/viewer && npm run build --workspace @scahn/phone",
     "start": "npm run start --workspace @scahn/relay",
-    "tunnel": "./scripts/tunnel.sh"
+    "tunnel": "./scripts/tunnel.sh",
+    "test": "npm test --workspace @scahn/phone && npm test --workspace @scahn/relay"
   },
   "engines": {
     "node": ">=18.18"

@@ -86,10 +86,17 @@ function makeLabel(text, color = '#ffffff') {
  * Returned in a group whose materials carry no clipping planes, so the marker
  * stays visible in every mode — including a cut that would otherwise slice it
  * away exactly when you most need to check the mirroring.
+ *
+ * HIDDEN by default and shown from the Debug drawer. It is a test instrument,
+ * and a magenta ball with "X+ Y+ Z+" labels in the middle of the anatomy is
+ * noise on a projected teaching display. Hidden is not removed: the group is
+ * always in the scene, so `scene.getObjectByName('fiducials').visible = true`
+ * brings it back in any mode for a laterality check.
  */
 export function createFiducials() {
   const group = new THREE.Group();
   group.name = 'fiducials';
+  group.visible = false;
 
   const axes = new THREE.AxesHelper(0.12); // X red, Y green, Z blue
   axes.material.depthTest = false;

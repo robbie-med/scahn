@@ -25,15 +25,25 @@ const ROOM_CODE_RE = /^[0-9]{6}$/;
  * The DO itself is the authority on whether its code is taken, so uniqueness is
  * guaranteed rather than probabilistic — a colliding candidate is rejected by
  * the DO and we try again.
+ *
+ * The per-IP creation window is checked ONCE here, before the retry loop, so a
+ * code collision cannot charge the caller twice. The global live-room cap is
+ * applied by the DO as part of the claim. Returns { code } or { status }.
  */
-async function allocateRoom(env) {
+async function allocateRoom(env, ip) {
+  if (ip) {
+    const stub = env.ROOMS.get(env.ROOMS.idFromName(`quota:${ip}`));
+    const q = await stub.fetch('https://scahn.internal/__quota');
+    if (!q.ok) return { status: q.status };
+  }
   for (let i = 0; i < 8; i++) {
     const code = candidateCode();
     const stub = env.ROOMS.get(env.ROOMS.idFromName(code));
-    const res = await stub.fetch(`https://scahn.internal/__claim?room=${code}`);
-    if (res.ok) return code;
+    const res = await stub.fetch(`https://scahn.internal/__claim?room=${code}&checked=1`);
+    if (res.ok) return { code };
+    if (res.status !== 409) return { status: res.status };
   }
-  return null;
+  return { status: 503 };
 }
 
 export default {
@@ -58,8 +68,12 @@ export default {
 
       if (role === 'display' && !code) {
         // A fresh display asks for a room; the relay assigns the code.
-        code = await allocateRoom(env);
-        if (!code) return new Response('server full', { status: 503 });
+        const got = await allocateRoom(env, request.headers.get('cf-connecting-ip'));
+        if (!got.code) {
+          return new Response(got.status === 429 ? 'rate limited' : 'server full',
+            { status: got.status ?? 503 });
+        }
+        code = got.code;
       }
 
       if (!code || !ROOM_CODE_RE.test(code)) {

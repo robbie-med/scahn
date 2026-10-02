@@ -107,7 +107,7 @@ def fill_holes(ob):
     bm.free()
 
 
-def plan_remesh(area, vol, current_tris):
+def plan_remesh(area, vol, current_tris, max_tris=MAX_REMESH_TRIS):
     """
     Choose a voxel size, or decline.
 
@@ -116,6 +116,10 @@ def plan_remesh(area, vol, current_tris):
     the wall does not approximate the wall, it deletes it — which is how a
     trachea remeshed at 2.2 mm with 2.6 mm walls came out as 1,172 triangles of
     unrecognisable tube.
+
+    `max_tris` is the ceiling above which remeshing is declined. Callers that
+    decimate afterwards anyway (the muscle layer) can raise it: a 190k-triangle
+    intermediate costs build time, not payload.
 
     Returns (voxel, estimated_tris) or (None, estimated_tris) to decline.
     """
@@ -127,7 +131,7 @@ def plan_remesh(area, vol, current_tris):
 
     voxel = max(0.4, min(budget_voxel, safe_voxel, 8.0))
     est = int(2.0 * area / (voxel * voxel)) if voxel > 0 else 0
-    if est > MAX_REMESH_TRIS:
+    if est > max_tris:
         return None, est
     return voxel, est
 

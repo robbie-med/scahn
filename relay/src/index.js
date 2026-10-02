@@ -275,6 +275,15 @@ function handleFrame(socket, meta, msg) {
       toDisplays(room, { type: 'mode', mode: msg.mode });
       return;
     }
+
+    case 'state': {
+      // The display's authoritative probe state, fanned out to every phone so
+      // their controls mirror the screen. Displays only.
+      const room = meta.roomCode ? registry.get(meta.roomCode) : null;
+      if (!room || meta.role !== 'display') return;
+      toSensors(room, msg);
+      return;
+    }
   }
 }
 

@@ -15,6 +15,7 @@ export const CLIENT_MSG_TYPES = Object.freeze([
   'claim',
   'orient',
   'mode',
+  'state',
   'ping',
   'pong',
 ]);
@@ -26,10 +27,21 @@ export const SERVER_MSG_TYPES = Object.freeze([
   'roster',
   'orient',
   'mode',
+  'state',
   'ping',
   'pong',
   'error',
 ]);
+
+/**
+ * The client->relay heartbeat, byte-exact.
+ *
+ * The Durable Object answers this with `setWebSocketAutoResponse`, which only
+ * matches the EXACT request string and never wakes the DO. Build the frame
+ * from this constant, not from JSON.stringify of an object with extra fields,
+ * or every ping wakes the DO and is billed as a request.
+ */
+export const PING_FRAME = '{"type":"ping"}';
 
 export const ROLES = Object.freeze(['sensor', 'display']);
 
@@ -62,6 +74,11 @@ export const DEPTH_LIMITS = Object.freeze({
   phased: { min: 0.06, max: 0.24, step: 0.02, default: 0.18 },
   linear: { min: 0.02, max: 0.09, step: 0.01, default: 0.06 },
 });
+
+/** Absolute depth bounds across every transducer, for frame validation. Derived
+ *  rather than written down so they cannot drift from DEPTH_LIMITS. */
+export const DEPTH_MIN = Math.min(...Object.values(DEPTH_LIMITS).map((l) => l.min));
+export const DEPTH_MAX = Math.max(...Object.values(DEPTH_LIMITS).map((l) => l.max));
 
 /** Clamp a depth to what the given transducer supports, snapped to its step. */
 export function clampDepth(probeType, depth) {
@@ -164,15 +181,14 @@ export function validateClientFrame(msg) {
       }
       if (msg.preset != null && !PRESETS.includes(msg.preset)) return ERRORS.BAD_FRAME;
       if (msg.probe != null && !PROBE_TYPES.includes(msg.probe)) return ERRORS.BAD_FRAME;
-      // Optional physical-translation delta, metres, in the recentered frame.
-      // Additive and optional, so v1 clients that never send it stay valid.
-      // Imaging depth in metres. Range covers a 2 cm linear-probe window up to
-      // a 40 cm deep abdominal sweep; anything outside is a bad frame.
+      // Imaging depth in metres, bounded by what any transducer can select.
       if (msg.depth != null) {
-        if (!isFiniteNum(msg.depth) || msg.depth < 0.02 || msg.depth > 0.40) {
+        if (!isFiniteNum(msg.depth) || msg.depth < DEPTH_MIN || msg.depth > DEPTH_MAX) {
           return ERRORS.BAD_FRAME;
         }
       }
+      // Optional physical-translation delta, metres, in the recentered frame.
+      // Additive and optional, so v1 clients that never send it stay valid.
       if (msg.dpos != null) {
         if (!Array.isArray(msg.dpos) || msg.dpos.length !== 3 || !msg.dpos.every(isFiniteNum)) {
           return ERRORS.BAD_FRAME;
@@ -185,6 +201,27 @@ export function validateClientFrame(msg) {
 
     case 'mode':
       if (![MODES.RAY, MODES.CUT, MODES.GHOST].includes(msg.mode)) return ERRORS.BAD_FRAME;
+      return null;
+
+    case 'state':
+      // Display -> phones. The display is the authority on where the probe is
+      // and what it is doing; it echoes that so every phone's controls show the
+      // screen's state rather than their own guess. Without it a phone keeps a
+      // stale (u, v) and the next pad drag teleports the probe out of the
+      // window it was just in, and a newly claiming phone overwrites the
+      // transducer and depth on its first frame. Every field is optional.
+      if (msg.u != null && !isFiniteNum(msg.u)) return ERRORS.BAD_FRAME;
+      if (msg.v != null && !isFiniteNum(msg.v)) return ERRORS.BAD_FRAME;
+      if (msg.preset != null && !PRESETS.includes(msg.preset)) return ERRORS.BAD_FRAME;
+      if (msg.probe != null && !PROBE_TYPES.includes(msg.probe)) return ERRORS.BAD_FRAME;
+      if (msg.depth != null) {
+        if (!isFiniteNum(msg.depth) || msg.depth < DEPTH_MIN || msg.depth > DEPTH_MAX) {
+          return ERRORS.BAD_FRAME;
+        }
+      }
+      if (msg.mode != null && ![MODES.RAY, MODES.CUT, MODES.GHOST].includes(msg.mode)) {
+        return ERRORS.BAD_FRAME;
+      }
       return null;
 
     case 'create':

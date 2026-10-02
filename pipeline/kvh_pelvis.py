@@ -8,15 +8,16 @@ scikit-image) and emits one blocky OBJ per structure in the Blender pre-export
 frame, in metres. Stage 2 (kvh_finish.py) runs under Blender and does the
 remesh, smoothing, decimation and Draco export.
 
-*** LICENCE: NOT CLEARED. ***
-The source is the Visible Korean female pelvis browsing software (Prof. Min Suk
-Chung, Ajou University). The installer carries no licence, copyright or terms
-string of any kind, so there is no grant to extract this data, derive meshes and
-redistribute them. Permission is being sought in writing. Until it arrives in
-writing, output of this script is LOCAL ONLY: it must not be deployed, and the
-GLB is gitignored so it cannot reach the repository by accident. The data also
-derives from an identifiable cadaver donor, which is a reason for care
-independent of the legal question.
+LICENCE: CC BY-NC 4.0 (Visible Korean Human, Ajou University School of
+Medicine). Cleared and shipped as its own GLB since commit 59745b7; the
+NonCommercial term is a constraint on the whole project (CLAUDE.md,
+"Known state"). The data derives from a body donor, which is a reason for
+care independent of the legal question.
+
+The source slice stack is NOT kept on the build machine. Fixes to the
+distributed artifact (bladder lumen, ureter/urethra tubes) therefore live
+in kvh_repair.py, which operates on the shipped GLB; fold them into
+kvh_finish.py if the stack is ever re-run.
 
 ## Why the obvious approach fails
 

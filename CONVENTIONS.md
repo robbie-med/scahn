@@ -35,12 +35,17 @@ of the bed and their left appears on your right.
 ## 3. The `L` fiducial — do not remove
 
 A distinctly colored marker (magenta) is fixed to the patient's **left flank** at
-approximately `(+0.17, 0.0, 0.0)`, with a text label reading `L`. It renders in
-**all modes** and is deliberately excluded from clipping.
+approximately `(+0.17, 0.0, 0.0)`, with a text label reading `L`. It is deliberately
+excluded from clipping, so it survives every mode.
 
 **This is a permanent test instrument, not scaffolding.** If that marker ever appears
 on the wrong side of the 2D panel relative to the 3D view, the pipeline is mirrored
 and every downstream anatomical claim the tool makes is false.
+
+It is **hidden by default and switched on from the Debug drawer** ("Fiducials"), or
+with `scahn.fiducials.visible = true` in the console. Hidden is not removed: the group
+is always in the scene. It was hidden because a magenta ball and `X+ Y+ Z+` labels in
+the middle of the anatomy on a projected teaching display read as part of the lesson.
 
 A persistent axis triad renders at the origin alongside it: X red, Y green, Z blue.
 
@@ -56,8 +61,16 @@ drawn (upper-left corner, mirroring real machine convention).
 Placement is compositional, and the order matters:
 
 ```
-probeWorld = surfaceFrame(u, v) · recenteredSensorQuaternion
+probeWorld = surfaceFrame(u, v) · presetSpinTilt · recenteredSensorQuaternion
 ```
+
+**Preset spin signs are chosen by convention, never by search.** Spin θ and θ+180°
+cut the identical plane and return identical pixel counts; they differ only in
+which way round the image is. A tuning sweep therefore cannot choose between them,
+and four of the eight windows once shipped mirrored. The marker direction per
+window (patient's right for transverse and the cardiac windows that cardiology
+shows marker-right, toward the head for longitudinal) is fixed first in
+`clients/viewer/src/torso.js`; only `u`, `v` and `tilt` are searched.
 
 `surfaceFrame(u,v)` positions the probe at a point on the torso shell and aligns its
 local −Y to the **inward** surface normal. The streamed quaternion is then applied
@@ -107,3 +120,12 @@ and costs hours to find.
 
 The kept half-space is the one the plane normal points **away** from. The clipping
 normal is the probe's beam-plane normal, i.e. probe local **+Z** in world space.
+
+## 8. Colour space on the 2D panel
+
+Assigned greys in `models.js` are **sRGB values as displayed**. The panel's cap
+pass renders into a `WebGLRenderTarget`, where three.js applies no output
+encoding, so the target holds linear values; the shadow composite in `panel2d.js`
+must end with `#include <colorspace_fragment>` to encode them. Without it every
+grey ships roughly squared (liver 133 → 60). Verify with the console check in
+CLAUDE.md: a liver pixel must read back as exactly 133 with the shadow pass on.

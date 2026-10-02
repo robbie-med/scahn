@@ -1,13 +1,11 @@
 /**
  * Torso shell and the surface frame the probe rides on. Spec section 8.
  *
- * P2 stand-in: an elliptical cylinder. Chosen over a capsule because its surface
- * frame is exact and analytic, so probe placement has no raycast error to debug
- * while the orientation pipeline is still being trusted for the first time.
- *
- * P3 replaces the mesh with the skin GLB. When it does, `surfaceFrame()` becomes
- * a raycast against that mesh — everything downstream consumes the returned
- * frame, not the parameterisation, so only this file changes.
+ * The analytic elliptical cylinder is the fallback: the primitive organ set
+ * was authored against it, and a point that misses the real skin mesh (above
+ * or below its crop) lands on it. With an imported model, `surfaceFrame()` is
+ * a raycast against the skin mesh — everything downstream consumes the
+ * returned frame, not the parameterisation, so only this file knows which.
  */
 
 import * as THREE from 'three';
@@ -108,9 +106,12 @@ const _nrm = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
 /**
  * Install (or clear, with null) the real skin mesh.
  *
- * TORSO's radii are updated to the mesh's own bounds so that anything still
+ * TORSO's radii are updated to the mesh's TRUNK bounds so that anything still
  * reading them — the analytic fallback, camera framing — is at least the right
- * size. `height` and `yCenter` are deliberately left alone; see surfaceFrame.
+ * size. The trunk is measured at mid-height rather than taken from the mesh's
+ * bounding box: the BodyParts3D skin includes the upper arms, and the box
+ * width (0.67 m) put the fallback shell a hand's breadth outside the body.
+ * `height` and `yCenter` are deliberately left alone; see surfaceFrame.
  */
 export function setSkinSurface(mesh) {
   skinSurface = mesh ?? null;
@@ -121,10 +122,11 @@ export function setSkinSurface(mesh) {
   skinSurface.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(skinSurface);
   skinAxisZ = (box.min.z + box.max.z) / 2;
-  TORSO.rx = Math.max(Math.abs(box.min.x), Math.abs(box.max.x));
-  TORSO.rz = (box.max.z - box.min.z) / 2;
   TORSO.zCenter = skinAxisZ;
-  skinCircumference = measureCircumference();
+  const ring = measureRing();
+  skinCircumference = ring.circumference;
+  TORSO.rx = ring.rx || Math.max(Math.abs(box.min.x), Math.abs(box.max.x));
+  TORSO.rz = ring.rz || (box.max.z - box.min.z) / 2;
 }
 
 /**
@@ -180,21 +182,28 @@ function hitSkin(s, c, y, outPos, outNormal) {
   return true;
 }
 
-/** Perimeter of the real shell at mid-height, by sampling the raycast. */
-function measureCircumference() {
+/** Perimeter and half-extents of the real shell at mid-height, by sampling
+ *  the raycast. Circumference 0 means too many misses to trust. */
+function measureRing() {
   const N = 180;
   const y = TORSO.yCenter;
   const pts = [];
   const p = new THREE.Vector3();
   const n = new THREE.Vector3();
+  let maxX = 0;
+  let maxZ = 0;
   for (let i = 0; i < N; i++) {
     const t = (i / N) * Math.PI * 2;
-    if (hitSkin(Math.sin(t), Math.cos(t), y, p, n)) pts.push(p.clone());
+    if (hitSkin(Math.sin(t), Math.cos(t), y, p, n)) {
+      pts.push(p.clone());
+      maxX = Math.max(maxX, Math.abs(p.x));
+      maxZ = Math.max(maxZ, Math.abs(p.z - skinAxisZ));
+    }
   }
-  if (pts.length < N * 0.75) return 0; // too many misses to trust
+  if (pts.length < N * 0.75) return { circumference: 0, rx: 0, rz: 0 };
   let sum = 0;
   for (let i = 0; i < pts.length; i++) sum += pts[i].distanceTo(pts[(i + 1) % pts.length]);
-  return sum;
+  return { circumference: sum, rx: maxX, rz: maxZ };
 }
 
 /**
@@ -289,84 +298,134 @@ export function createTorsoMesh() {
   return mesh;
 }
 
+// ---------------------------------------------------------------------------
+// named scan windows
+// ---------------------------------------------------------------------------
+
 /**
- * Named scan windows (spec section 8), as snap points.
+ * Named scan windows (spec section 8), as snap points, PER MODEL.
  *
  *   u, v  : where on the shell
  *   spin  : rotation about the probe's beam axis (local Y). 0 = scan plane
- *           contains the probe's local X. 90 deg swings it to contain the
+ *           contains the probe's local X. ±90 deg swings it to contain the
  *           superior direction, i.e. a longitudinal/coronal plane.
  *   tilt  : rotation about the probe's local X, aiming the beam off-normal.
  *           Subxiphoid needs a lot of it — the probe lies almost flat on the
  *           abdomen and aims up under the ribs.
  *
- * RE-TUNED after the probe moved from the elliptical capsule onto the real
- * BodyParts3D skin mesh. The v->height mapping is unchanged, so these moved
- * only by however much a real body differs from the ellipse at that height —
- * but that was enough to cost parasternal-short two of its four chambers,
- * apical-four-chamber one, and Morison's its kidney entirely.
+ * ## The spin SIGN is chosen by convention, never by search
  *
- * Swept u and v on a grid and scored by counting panel pixels at each organ's
- * exact assigned grey, with the acoustic-shadow pass DISABLED so the greys are
- * the flat assigned values rather than attenuated ones. Paired-structure
- * windows score the WEAKER of the two organs, so a view full of liver with no
- * kidney cannot win Morison's. Landmarks on this model: heart centre y=+14.6 cm (v=0.74),
- * LV cavity y +11.0..+17.8, liver mid y=+3.3 cm (v=0.56), right kidney mid
- * y=-5.5 cm, splenorenal interface y~0 (v=0.50), bladder centre y=-26.4 cm,
- * abdominal aorta mid y=-3.2 cm (v=0.45). Still not clinically reviewed — they
+ * Probe-local +X is the orientation marker, and the 2D panel puts that side on
+ * its LEFT (panel2d.js). Spin θ and θ+180° cut the identical plane and return
+ * the identical pixel counts, differing only in which way round the image is —
+ * so a tuning search can never choose between them, and four of the eight
+ * windows once shipped mirrored (feet on the left of a coronal view, PLAX
+ * back to front). The marker direction for each window is therefore fixed
+ * first, from the convention a learner will meet on a real machine, and only
+ * u, v and tilt are searched. With local X = Y×Z and Z = superior:
+ *
+ *   X' = cos(spin)·X − sin(spin)·Z
+ *   spin    0 → marker along local X (patient's RIGHT at the anterior midline)
+ *   spin  −90 → marker SUPERIOR (toward the head)
+ *   spin  +45 → right hip,  +135 → left hip
+ *
+ * Because the panel's marker is on the LEFT (abdominal convention), cardiac
+ * windows that a cardiology machine shows with the marker on the RIGHT are
+ * reproduced by pointing the physical marker the opposite way; the image is
+ * then the textbook image:
+ *
+ *   subxiphoid   → patient's right   (spin 0)      liver top-left, apex to the right
+ *   PLAX         → left hip          (spin +135)   aorta/LA on the right, apex left
+ *   PSAX         → right hip         (spin +45)    RV top-left, LV round in the middle
+ *   A4C          → patient's right   (spin 0)      LV on the right of the screen
+ *   RUQ / LUQ    → head              (spin −90)    cephalad on the left
+ *   suprapubic   → head              (spin −90)    sagittal, bladder dome left
+ *   aorta        → patient's right   (spin 0)      transverse, radiological
+ *
+ * u, v and tilt were tuned by sweeping a grid and scoring the panel per organ
+ * with each organ painted a unique id colour and the shadow pass ON, so a
+ * window only scores for tissue the learner would actually see. Cardiac
+ * windows score the weakest of their required chambers, so a view with three
+ * chambers cannot beat one with four. Still not clinically reviewed — these
  * want a look from someone who scans.
  */
 const DEG = Math.PI / 180;
 
-export const WINDOWS = Object.freeze({
-  // v 0.63 -> 0.56, tilt -55 -> -50 deg. The probe sits below the xiphoid
-  // (liver inferior edge y=-4.5 cm) and the plane fans up through the liver
-  // into the heart: 4/4 chambers cut, ~26k anechoic-cavity px with ~16k liver
-  // px as the near-field acoustic window. At v=0.63 the plane lands high and
-  // only 3 chambers are cut; at tilt -70 deg the cavity return halves.
-  'subxiphoid': { u: 0.985, v: 0.64, spin: 0, tilt: -50 * DEG },
-  // u 0.08 -> 0.04, v 0.86 -> 0.78. Parasternal means just left of the sternum
-  // (x=+3.5 cm); v=0.86 aimed above the heart entirely (ventricle wall tops at
-  // y=+19.1 cm -> v=0.82). v=0.78 peaks the cavity return (~25.5k px LV +
-  // outflow) on the LV long axis; u=0.08 drifts off the sternal border and
-  // loses cavity.
-  'parasternal-long': { u: 0.02, v: 0.7, spin: -45 * DEG, tilt: 0 },
-  // v 0.82 -> 0.72. 0.82 cut the basal heart (mostly outflow tract); 0.72 sits
-  // at mid-LV (cavity spans y +11.0..+17.8 cm), the papillary level short axis
-  // is taught at: a thick wall crescent around the cavity, ~19k cavity vs
-  // ~8.5k wall px. u stays 0.06 — the wall ring thins at 0.02 and the cavity
-  // narrows at 0.08.
-  'parasternal-short': { u: 0.04, v: 0.82, spin: 45 * DEG, tilt: 0 },
-  // v 0.78 -> 0.72. The apex on this model is at y=+11..+13 cm, and 0.78 put
-  // the probe at mid-cavity (y=+16.8 cm), so the "apical" view opened at the
-  // base. 0.72 lands at the apex with 4/4 chambers cut and the cavity return
-  // up from ~21k to ~29k px; spin 60 deg and tilt -25 deg both peaked here.
-  'apical-four-chamber': { u: 0.05, v: 0.68, spin: 60 * DEG, tilt: -25 * DEG },
-  // v 0.54 -> 0.46. The hepatorenal interface (Morison's) is at the right
-  // kidney's upper pole, y=-2.4 cm -> v=0.46. Centroid-sampled: at u 0.76-0.80
-  // both liver and right kidney sample their classified greys through the rib
-  // shadows; 0.78 is the mid-axillary centre of that band and the classic
-  // intercostal spot.
-  'ruq-morison': { u: 0.72, v: 0.56, spin: 90 * DEG, tilt: 0 },
-  // u 0.22 -> 0.32, v 0.58 -> 0.46. The kidneys are retroperitoneal (z <= +10
-  // cm) but the flank shell sits anterior of them (zCenter ~+10.8 cm), so a
-  // coronal plane from the MID-axillary line (u 0.22-0.26) passes in front of
-  // the left kidney entirely — the window has to come from the posterior
-  // axillary line. u=0.32/v=0.46 is the only sampled position where both
-  // centroids sample their exact classified greys (spleen 0.48, kidney 0.44);
-  // at u=0.34 the kidney shows but the spleen falls to shadow.
-  'luq-splenorenal': { u: 0.28, v: 0.56, spin: 90 * DEG, tilt: 0 },
-  // Re-aimed: was transverse (spin 0) at v=0.10. On this model the bladder
-  // centre is y=-26.4 cm and the transverse plane is capped by the pubic bone
-  // — the whole sector ends up acoustic shadow (~3k tissue px, and v=0.10
-  // grazes the bladder's top edge: zero wall). The sagittal plane (spin 90)
-  // dives over the pubis into the pelvis: bladder wall plus a visible lumen
-  // (~900 wall / ~2.8k lumen px, ~44k tissue px). v=0.20 parks the probe just
-  // above the pubic crest; tilt only rotates the plane off the bladder.
-  'suprapubic': { u: 0.98, v: 0.2, spin: 90 * DEG, tilt: 0 },
-  // v 0.53 -> 0.48. The abdominal aorta's mid is y=-3.2 cm (v=0.45); anechoic
-  // return peaks at v=0.48 (~3.5k px: aorta + IVC + mesenteric root) with the
-  // vertebral body bright behind it. v=0.53 lands on the coeliac/hepatic
-  // confluence instead of the straight infra-renal segment.
-  'aorta-transverse': { u: 0.06, v: 0.58, spin: 0, tilt: 0 },
+/**
+ * Tuned on the fused-heart BodyParts3D build with the muscle layer off.
+ * Panel pixel counts (410 x 741 panel) at the chosen placement are quoted so
+ * a future re-tune can tell a regression from a different scoring choice.
+ */
+const BODYPARTS3D_WINDOWS = Object.freeze({
+  // Just below the xiphoid, almost flat, fanning up through the liver. All
+  // four chambers (LV 5.4k, RV 4.0k, LA 3.2k, RA 2.7k px) with 6.9k px of
+  // liver as the near-field window. Tilt -50 lost the liver; -30 lost the
+  // atria.
+  'subxiphoid': { u: 0.96, v: 0.60, spin: 0, tilt: -40 * DEG },
+  // Left sternal border, high. LV 7.1k, LA 2.7k, RV 2.5k px; the aortic root
+  // is the weakest member at ~0.5k, which is as much as this interspace gives
+  // on this skeleton. Marker to the left hip (spin +135): textbook PLAX.
+  'parasternal-long': { u: 0.05, v: 0.80, spin: 135 * DEG, tilt: 0 },
+  // One interspace lateral of PLAX. LV 4.1k and RV 4.3k px at the papillary
+  // level. The search was CONSTRAINED to the parasternal strip (u 0.01-0.08):
+  // unconstrained it slid to the subcostal margin, which cuts the same two
+  // chambers through 37k px of liver and is a different window.
+  'parasternal-short': { u: 0.08, v: 0.81, spin: 45 * DEG, tilt: -10 * DEG },
+  // At the apex (x ~ +8 cm, y ~ +11 cm), beam aimed up toward the base. All
+  // four chambers from the apex (LV 5.1k, RV 4.9k, LA 2.9k, RA 2.9k px).
+  // Constrained to u >= 0.08; from the parasternal position the same four
+  // chambers appear but it is not an apical view.
+  'apical-four-chamber': { u: 0.13, v: 0.65, spin: 0, tilt: -20 * DEG },
+  // Mid-axillary, coronal, marker to the head. Liver 21k, right kidney 9.8k px
+  // with the hepatorenal interface in the middle of the sector.
+  'ruq-morison': { u: 0.70, v: 0.48, spin: -90 * DEG, tilt: 0 },
+  // Posterior axillary line (the left kidney is further back than the right),
+  // coronal, marker to the head. Spleen 7.3k, left kidney 7.3k px.
+  'luq-splenorenal': { u: 0.20, v: 0.52, spin: -90 * DEG, tilt: -20 * DEG },
+  // Sagittal, marker to the head, just above the pubis and aimed a little
+  // caudad. BodyParts3D's bladder is an EMPTY one (76 mL, behind the pubic
+  // bone), so this is the weakest window on this model: lumen 3.1k, wall
+  // 0.6k, prostate 0.9k px behind 8.6k px of bone. The pelvis model is the
+  // one to teach this window on.
+  'suprapubic': { u: 0.97, v: 0.06, spin: -90 * DEG, tilt: -10 * DEG },
+  // Epigastric midline, transverse, marker to the patient's right. Aorta and
+  // IVC side by side (~0.5k px each, which is the right size for 2 cm vessels
+  // at this scale) over the vertebral body, liver in the near field. The
+  // search preferred y = +5 cm for its liver bonus; y = -3 cm is the straight
+  // infra-coeliac segment the window is taught on, so it is set by hand.
+  'aorta-transverse': { u: 0.0, v: 0.45, spin: 0, tilt: 0 },
 });
+
+/**
+ * The female pelvis is a 25 cm stack centred on the scene origin, with no
+ * heart, liver, spleen or kidney, so only the pelvic window applies. Every
+ * other preset reports itself unavailable rather than moving the probe to a
+ * spot tuned against a different body (the whole-body "suprapubic" sits 6 cm
+ * below the bottom of this model).
+ */
+const PELVIS_WINDOWS = Object.freeze({
+  // Midline sagittal, marker to the head, aimed slightly caudad over the
+  // pubis. Bladder lumen 10.8k px as the window, uterus 4.3k behind it,
+  // vagina 1.4k and rectum 0.7k px below: the textbook sagittal pelvis.
+  // `depth` is optional on any window: this model is 10 cm deep, and at the
+  // curvilinear default of 20 cm the pelvis is a small patch at the top of a
+  // black sector.
+  'suprapubic': { u: 0.03, v: 0.44, spin: -90 * DEG, tilt: 10 * DEG, depth: 0.14 },
+});
+
+export const MODEL_WINDOWS = Object.freeze({
+  bodyparts3d: BODYPARTS3D_WINDOWS,
+  // The primitives are ellipsoids at plausible positions, authored against the
+  // analytic shell. The whole-body placements land near enough on them for a
+  // capping check, which is all the primitive set is for.
+  primitives: BODYPARTS3D_WINDOWS,
+  'kvh-female-pelvis': PELVIS_WINDOWS,
+});
+
+/** Windows for a model id; unknown models get the whole-body set. */
+export function windowsFor(modelId) {
+  return MODEL_WINDOWS[modelId] ?? BODYPARTS3D_WINDOWS;
+}
+
+/** @deprecated Use windowsFor(modelId). Kept for the console smoke tests. */
+export const WINDOWS = BODYPARTS3D_WINDOWS;

@@ -5,22 +5,29 @@
  * the room map. The §7.5 `Map` is gone and isolation between rooms is
  * structural rather than something this code has to enforce.
  *
+ * The same class also backs two kinds of bookkeeping instance, told apart by
+ * name rather than by a second DO class (which would need its own migration):
+ *   - `quota:<ip>`   per-IP room-creation window (LIMITS.ROOMS_PER_IP_PER_HOUR)
+ *   - `quota:global` live-room counter (LIMITS.MAX_ROOMS)
+ * Both are only ever reached through the internal `/__…` paths.
+ *
  * Hibernation rules that shape everything below:
  *   - Sockets are accepted via `state.acceptWebSocket`, never `server.accept()`,
  *     or the DO can never hibernate.
  *   - No setInterval/setTimeout anywhere. The 20 s heartbeat is
- *     `setWebSocketAutoResponse`, which answers pings without waking the DO and
- *     is not billed for wall-clock. Room expiry is an Alarm, which survives
- *     hibernation as a timer would not.
+ *     `setWebSocketAutoResponse`, which answers the clients' pings without
+ *     waking the DO and is not billed for wall-clock. Room expiry is an Alarm,
+ *     which survives hibernation as a timer would not.
  *   - In-memory state is lost on hibernation, so per-socket identity lives in
  *     `serializeAttachment` and room state in storage. Storage is written on
- *     join and claim ONLY — never per orientation frame, which at 30 Hz would
- *     be the one way to actually hit the free-tier write limit.
+ *     join, claim and close ONLY — never per orientation frame, which at 30 Hz
+ *     would be the one way to actually hit the free-tier write limit.
  */
 
-import { ERRORS, LIMITS, validateClientFrame } from '../../shared/index.js';
+import { ERRORS, LIMITS, PING_FRAME, validateClientFrame } from '../../shared/index.js';
 
 const enc = (obj) => JSON.stringify(obj);
+const encoder = new TextEncoder();
 
 export class Room {
   constructor(state, env) {
@@ -35,9 +42,10 @@ export class Room {
     this._rate = new Map();
 
     // Fixed-string heartbeat. It cannot echo a timestamp, which is why the
-    // roster's per-sensor RTT is not measurable here — see README.
+    // roster's per-sensor RTT is not measurable here — see README. The request
+    // string must be byte-identical to what the clients send (PING_FRAME).
     this.state.setWebSocketAutoResponse(
-      new WebSocketRequestResponsePair(enc({ type: 'ping' }), enc({ type: 'pong' })),
+      new WebSocketRequestResponsePair(PING_FRAME, enc({ type: 'pong' })),
     );
   }
 
@@ -67,16 +75,69 @@ export class Room {
     await this.state.storage.put('sensors', sensors);
   }
 
+  /** Ids of sensors that hold a live socket right now. */
+  liveSensorIds() {
+    const ids = new Set();
+    for (const ws of this.state.getWebSockets('sensor')) {
+      const id = ws.deserializeAttachment()?.id;
+      if (id) ids.add(id);
+    }
+    return ids;
+  }
+
+  // --- quota instances --------------------------------------------------------
+
+  quotaStub(name) {
+    return this.env.ROOMS.get(this.env.ROOMS.idFromName(`quota:${name}`));
+  }
+
+  /**
+   * Internal, on a `quota:<ip>` instance: one more room for this IP within the
+   * sliding hour, or 429. Stamps are swept by the alarm so an IP that stops
+   * creating rooms costs nothing after an hour.
+   */
+  async quotaIp() {
+    const now = Date.now();
+    const stamps = ((await this.state.storage.get('stamps')) ?? [])
+      .filter((t) => now - t < 3_600_000);
+    if (stamps.length >= LIMITS.ROOMS_PER_IP_PER_HOUR) {
+      return new Response('rate limited', { status: 429 });
+    }
+    stamps.push(now);
+    await this.state.storage.put('kind', 'quota');
+    await this.state.storage.put('stamps', stamps);
+    await this.state.storage.setAlarm(now + 3_600_000);
+    return new Response('ok');
+  }
+
+  /** Internal, on `quota:global`: count a room in (503 when full) or out. */
+  async quotaGlobal(delta) {
+    const live = (await this.state.storage.get('live')) ?? 0;
+    if (delta > 0 && live >= LIMITS.MAX_ROOMS) {
+      return new Response('server full', { status: 503 });
+    }
+    await this.state.storage.put('kind', 'quota');
+    await this.state.storage.put('live', Math.max(0, live + delta));
+    return new Response('ok');
+  }
+
   // --- lifecycle ------------------------------------------------------------
 
   /**
    * Internal: claim this code if unused. Returns 409 if the room already
    * exists, which is how the Worker guarantees code uniqueness rather than
-   * hoping for it.
+   * hoping for it; 429 / 503 when the creating IP or the service is over
+   * quota. `ip` is null when the Worker has already applied the per-IP check.
    */
-  async claimCode(code) {
+  async claimCode(code, ip) {
     const created = await this.state.storage.get('created');
     if (created) return new Response('taken', { status: 409 });
+    if (ip) {
+      const q = await this.quotaStub(ip).fetch('https://scahn.internal/__quota');
+      if (!q.ok) return q;
+    }
+    const g = await this.quotaStub('global').fetch('https://scahn.internal/__acquire');
+    if (!g.ok) return g;
     await this.state.storage.put('created', Date.now());
     await this.state.storage.put('code', code);
     // Expire if no sensor ever joins.
@@ -87,8 +148,12 @@ export class Room {
   async fetch(request) {
     const url = new URL(request.url);
 
+    if (url.pathname === '/__quota') return this.quotaIp();
+    if (url.pathname === '/__acquire') return this.quotaGlobal(+1);
+    if (url.pathname === '/__release') return this.quotaGlobal(-1);
     if (url.pathname === '/__claim') {
-      return this.claimCode(url.searchParams.get('room'));
+      const ip = url.searchParams.get('checked') ? null : (url.searchParams.get('ip') || null);
+      return this.claimCode(url.searchParams.get('room'), ip);
     }
 
     if (request.headers.get('Upgrade') !== 'websocket') {
@@ -107,9 +172,11 @@ export class Room {
     }
     // A display reconnecting to a code that has since expired revives it rather
     // than being handed a live-looking room that no phone can actually join.
-    // The code is still unique — it *is* this Durable Object.
+    // The code is still unique — it *is* this Durable Object. Revival is a
+    // creation for quota purposes, so it carries the caller's IP.
     if (role === 'display' && !created) {
-      await this.claimCode(code);
+      const res = await this.claimCode(code, request.headers.get('cf-connecting-ip'));
+      if (!res.ok) return res;
     }
 
     const pair = new WebSocketPair();
@@ -134,7 +201,10 @@ export class Room {
   // --- messaging ------------------------------------------------------------
 
   async webSocketMessage(ws, raw) {
-    if (typeof raw !== 'string' || raw.length > LIMITS.MAX_FRAME_BYTES) {
+    // `length` counts UTF-16 units, so a frame can pass that check and still
+    // be three times the byte budget. Encode only when the cheap check passes.
+    if (typeof raw !== 'string' || raw.length > LIMITS.MAX_FRAME_BYTES
+        || encoder.encode(raw).length > LIMITS.MAX_FRAME_BYTES) {
       return ws.send(enc({ type: 'error', code: ERRORS.BAD_FRAME }));
     }
 
@@ -163,6 +233,8 @@ export class Room {
 
     switch (msg.type) {
       case 'ping':
+        // Only a ping that is NOT byte-identical to PING_FRAME reaches here
+        // (the auto-response answers the exact one without waking us).
         return ws.send(enc({ type: 'pong', t: msg.t }));
       case 'pong':
         return;
@@ -189,6 +261,13 @@ export class Room {
         if (att.role !== 'sensor' || att.id !== (await this.active())) return;
         return this.toDisplays(enc({ type: 'mode', mode: msg.mode }));
       }
+
+      case 'state': {
+        // The display's authoritative probe state, fanned out to every phone
+        // so their controls mirror the screen. Displays only; no storage.
+        if (att.role !== 'display') return;
+        return this.toSensors(raw);
+      }
     }
   }
 
@@ -199,6 +278,17 @@ export class Room {
    */
   async joinSensor(ws, att, msg) {
     const sensors = { ...(await this.sensors()) };
+    const live = this.liveSensorIds();
+    const now = Date.now();
+
+    // Prune identities that have been socket-less past the grace period, so a
+    // teaching session's worth of phones that lost their token (private tab,
+    // another browser) cannot fill the room with ghosts. Every entry carries a
+    // `lastSeen` from its join or close, so a socket that died without a close
+    // event still ages out. Same policy as the Node relay's pruneSensors.
+    for (const [id, s] of Object.entries(sensors)) {
+      if (!live.has(id) && now - (s.lastSeen ?? 0) > LIMITS.ROOM_GRACE_MS) delete sensors[id];
+    }
 
     let entry = null;
     if (msg.token) {
@@ -207,7 +297,9 @@ export class Room {
     }
 
     if (!entry) {
-      if (Object.keys(sensors).length >= LIMITS.MAX_SENSORS_PER_ROOM) {
+      // The cap counts phones that are actually connected, not every identity
+      // ever issued.
+      if (live.size >= LIMITS.MAX_SENSORS_PER_ROOM) {
         return ws.send(enc({ type: 'error', code: ERRORS.ROOM_FULL }));
       }
       const seq = ((await this.state.storage.get('seq')) ?? 0) + 1;
@@ -220,14 +312,19 @@ export class Room {
     }
     if (typeof msg.name === 'string' && msg.name) entry.name = msg.name.slice(0, 40);
 
-    sensors[entry.id] = { name: entry.name, token: entry.token };
+    sensors[entry.id] = { name: entry.name, token: entry.token, lastSeen: now };
     await this.putSensors(sensors);
 
     ws.serializeAttachment({ ...att, id: entry.id });
 
     // First sensor into a room with nobody driving takes control automatically.
+    // "Nobody driving" includes a driver whose phone has gone for good: a brief
+    // background/resume keeps control (webSocketClose leaves it alone), but a
+    // phone that joins while the old driver has no socket must not be left
+    // waving at a frozen screen. Same rule as the Node relay's
+    // claimIfUncontested.
     const active = await this.active();
-    if (!active || !sensors[active]) await this.setActive(entry.id);
+    if (!active || !sensors[active] || !live.has(active)) await this.setActive(entry.id);
 
     // The room is now in use; push expiry out to the idle-teardown window.
     await this.state.storage.setAlarm(Date.now() + LIMITS.ROOM_EMPTY_TTL_MS);
@@ -246,6 +343,14 @@ export class Room {
 
   toDisplays(payload) {
     for (const ws of this.state.getWebSockets('display')) {
+      try {
+        ws.send(payload);
+      } catch { /* closing */ }
+    }
+  }
+
+  toSensors(payload) {
+    for (const ws of this.state.getWebSockets('sensor')) {
       try {
         ws.send(payload);
       } catch { /* closing */ }
@@ -278,23 +383,30 @@ export class Room {
     });
 
     this.toDisplays(frame);
-    for (const ws of this.state.getWebSockets('sensor')) {
-      try {
-        ws.send(frame);
-      } catch { /* closing */ }
-    }
+    this.toSensors(frame);
   }
 
   // --- teardown -------------------------------------------------------------
 
   async webSocketClose(ws) {
+    this._rate.delete(ws);
     // Deliberately does NOT clear activeSensorId: a brief background/resume
     // must not silently hand control to whoever else is holding a phone.
+    // It does stamp the identity, so joinSensor can age it out later.
+    const att = ws.deserializeAttachment();
+    if (att?.role === 'sensor' && att.id) {
+      const sensors = { ...(await this.sensors()) };
+      if (sensors[att.id]) {
+        sensors[att.id] = { ...sensors[att.id], lastSeen: Date.now() };
+        await this.putSensors(sensors);
+      }
+    }
     await this.broadcastRoster();
     await this.scheduleTeardown();
   }
 
-  async webSocketError() {
+  async webSocketError(ws) {
+    this._rate.delete(ws);
     await this.broadcastRoster();
   }
 
@@ -307,13 +419,20 @@ export class Room {
   }
 
   /** Room expiry. A closing laptop lid must not kill the room, so this only
-   *  wipes when nothing is connected. */
+   *  wipes when nothing is connected. Quota instances just forget. */
   async alarm() {
+    if ((await this.state.storage.get('kind')) === 'quota') {
+      await this.state.storage.deleteAll();
+      return;
+    }
     const anyLive =
       this.state.getWebSockets('display').length + this.state.getWebSockets('sensor').length;
     if (anyLive > 0) {
       await this.state.storage.setAlarm(Date.now() + LIMITS.ROOM_EMPTY_TTL_MS);
       return;
+    }
+    if (await this.state.storage.get('created')) {
+      await this.quotaStub('global').fetch('https://scahn.internal/__release');
     }
     await this.state.storage.deleteAll();
     this._active = undefined;

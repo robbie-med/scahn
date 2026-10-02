@@ -98,6 +98,16 @@ const SHADOW_FRAG = /* glsl */`
     // Shadow multiplies rather than replaces, so the sector mask and graticule
     // drawn over the panel stay untouched.
     gl_FragColor = vec4(panel.rgb * mix(1.0, uFloor, hit), panel.a);
+    // Output colour-space encoding. The cap pass rendered into a render
+    // target, where three.js applies NO output encoding, so tPanel holds
+    // LINEAR values; this composite is what reaches the screen, and it has to
+    // do the sRGB conversion the renderer would have done for a direct draw.
+    // Without this line every grey on the panel shipped roughly squared: the
+    // liver's assigned 133 showed as 60 and the kidney's 112 as 41, so the
+    // panel was far darker than designed and every window had been tuned
+    // against a picture nobody saw. The no-shadow path (primitives) never
+    // had the problem, which is why it went unnoticed.
+    #include <colorspace_fragment>
   }
 `;
 
@@ -248,10 +258,22 @@ export class Panel2D {
    * @param {(x:number,y:number,w:number,h:number)=>void} setViewport
    */
   render(renderer, scene, setViewport) {
+    // The empty field of an ultrasound image is black, and it is black whether
+    // or not it is "in shadow" — there is nothing there to attenuate. Clearing
+    // the panel with the page colour (0x0b0d10) was wrong twice over: it is not
+    // black, and the composite pass encoded it differently from the shadowed
+    // copy of itself, so the empty sector showed a visible light/dark boundary
+    // where the shadow mask crossed nothing at all.
+    this._prevClear ??= new THREE.Color();
+    renderer.getClearColor(this._prevClear);
+    const prevAlpha = renderer.getClearAlpha();
+    renderer.setClearColor(0x000000, 1);
+
     if (!this.shadowEnabled) {
       setViewport();
       renderer.clear(true, true, true);
       renderer.render(scene, this.camera);
+      renderer.setClearColor(this._prevClear, prevAlpha);
       return;
     }
 
@@ -276,6 +298,7 @@ export class Panel2D {
     setViewport();
     renderer.clear(true, true, true);
     renderer.render(this.quadScene, this.quadCamera);
+    renderer.setClearColor(this._prevClear, prevAlpha);
   }
 
   /**

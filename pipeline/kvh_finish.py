@@ -4,7 +4,10 @@ Stage 2 of the Visible Korean female pelvis build: blocky OBJs -> Draco GLB.
     blender --background --factory-startup --python pipeline/kvh_finish.py \
         -- OBJ_DIR OUT.glb
 
-*** LICENCE: NOT CLEARED — see kvh_pelvis.py. Local use only. ***
+LICENCE: CC BY-NC 4.0 — see kvh_pelvis.py. Shipped as its own GLB.
+NOTE: kvh_repair.py post-processes the shipped GLB (bladder lumen,
+manifold ureter/urethra tubes) because the slice stack is not on the
+build machine; re-running this stage must be followed by that one.
 
 Stage 1 emits one blocky OBJ per structure, already in the Blender pre-export
 frame and in metres, so there is no coordinate work here. This stage only has to

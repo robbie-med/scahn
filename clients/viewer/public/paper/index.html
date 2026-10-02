@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scahn: a phone-driven ultrasound scanning-technique trainer — technical description</title>
+<meta name="description" content="How Scahn is built: sensor pipeline, relay, rendering of the scan plane, anatomy assets and validation.">
+<style>
+  :root { --ink:#1b2027; --muted:#5b6673; --accent:#1f6fd0; --rule:#d9dee5; --bg:#fbfbfc; --code:#f1f3f6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e6ebf1; --muted:#9aa6b4; --accent:#6fb0ff; --rule:#2a323c; --bg:#0f1317; --code:#171c22; }
+  }
+  html { background: var(--bg); color: var(--ink); }
+  body { margin: 0; font: 16px/1.55 Georgia, "Times New Roman", serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 20px 80px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 6px; }
+  .byline { color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--rule); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  p, li { font-size: 15.5px; }
+  .abstract { border-left: 3px solid var(--accent); padding: 4px 16px; margin: 0 0 20px; color: var(--ink); }
+  .abstract p { margin: 6px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code); padding: 12px 14px; border-radius: 8px; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 10px 0 16px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  figure { margin: 18px 0; }
+  figcaption { font-size: 13.5px; color: var(--muted); margin-top: 6px; }
+  .mermaid { background: #fff; border: 1px solid var(--rule); border-radius: 8px; padding: 10px; overflow-x: auto; }
+  @media (prefers-color-scheme: dark) { .mermaid { background: #f6f7f9; } }
+  .mermaid-src { display: none; }
+  .refs li { font-size: 14px; margin-bottom: 6px; }
+  a { color: var(--accent); }
+  .status { font-size: 13.5px; color: var(--muted); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 12px; }
+  .back { font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+<p class="back"><a href="../">← Back to the viewer</a></p>
+
+<h1>Scahn: a phone-driven trainer for ultrasound scanning technique</h1>
+<p class="byline">Technical description of the system as deployed at <a href="https://scahn.robbiemed.org">scahn.robbiemed.org</a>. Source: <a href="https://github.com/robbie-med/scahn">github.com/robbie-med/scahn</a> (MIT; anatomy assets under their own licences, §6).</p>
+
+<div class="abstract">
+<p><b>Abstract.</b> Scahn teaches the hand–eye mapping of ultrasound scanning without a machine or a patient. A phone, held like a transducer, streams its attitude as a quaternion at 30 Hz to a display that renders a life-size anatomical model, a virtual probe riding the skin surface, and, beside it, the greyscale cross-section the current scan plane produces. The cross-section is not simulated acoustically; it is a geometric cut through the same meshes the 3D view draws, so the two views cannot disagree. The system comprises a sensor client, a stateless relay built on Cloudflare Durable Objects, a Three.js display with stencil-buffer capping and a bone-shadow pass, and a headless Blender pipeline that prepares open-licence anatomy for rendering. We describe each component, the coordinate conventions that keep laterality correct end to end, the measurement-driven placement of named scanning windows, and the checks that guard against the one failure a laterality-teaching tool must never make: a silent mirror.</p>
+</div>
+
+<p class="status">Status: pre-alpha. The anatomy is real; the window positions are measured approximations that have not been clinically reviewed. Not for clinical instruction.</p>
+
+<h2>1. Problem and design goals</h2>
+<p>Learning to scan is learning a mapping: how a rotation or slide of the probe on the skin changes the plane through the body, and therefore the image. Simulators that render convincing B-mode images are expensive, and anatomy atlases show the body but not the plane. Scahn isolates the mapping. Its goals, in order: (i) the 3D cut and the 2D image must be the same geometry; (ii) a learner must be able to start within a minute on their own phone; (iii) the display must run on a projector laptop or an iPad; (iv) the anatomy must be openly licensed and attributed; (v) laterality must be provably correct, because a mirrored trainer teaches the wrong thing convincingly.</p>
+
+<h2>2. System architecture</h2>
+<figure>
+<pre class="mermaid">
+flowchart LR
+  subgraph Phone["Phone (sensor client)"]
+    S["DeviceOrientation / AbsoluteOrientationSensor"] --> Q["quaternion, recentred"]
+    P["placement: pad · IMU clutch · optical flow"] --> D["dpos / surf"]
+    Q & D --> F["orient frame · 30 Hz"]
+  end
+  subgraph CF["Cloudflare Worker"]
+    W["/ws router"] --> R[("Room Durable Object<br/>idFromName(code)")]
+    R --- QI[("quota:ip")]
+    R --- QG[("quota:global")]
+  end
+  subgraph Display["Display (viewer)"]
+    N["net.js"] --> M["main.js state"]
+    M --> V3[3D viewport]
+    M --> V2[2D panel]
+    M -->|state echo| N
+  end
+  F -->|wss, role=sensor&room| W
+  R -->|fan-out, driver only| N
+  N -->|state, roster| R
+  R -->|state, roster| Phone
+  W -->|static assets| Display
+</pre>
+<figcaption>Figure 1. Components and message flow. One Durable Object per six-digit room code; the routing layer is the room map, so cross-room isolation is structural rather than enforced in code.</figcaption>
+</figure>
+
+<p>Four npm workspaces share one protocol module (<code>shared/index.js</code>) that holds the message allowlist, limits, preset vocabulary and validation, so the phone, the two relay implementations and the display cannot drift. The Worker also serves both clients from the same origin as the WebSocket endpoint, which is what satisfies iOS's secure-context requirement for motion permission. A legacy Node relay implements the identical protocol for offline development; the integration test suite runs unchanged against either.</p>
+
+<h2>3. Sensing and placement</h2>
+<p><b>Attitude.</b> All sensor fusion is on the handset. Android uses <code>AbsoluteOrientationSensor</code>, which yields a quaternion; iOS uses <code>deviceorientation</code>, converted with the intrinsic Z‑X′‑Y″ composition, a −90° correction for the screen-up reference frame and a screen-orientation twist, copied verbatim from three.js's retired <code>DeviceOrientationControls</code>. Only quaternions cross the wire: Euler angles gimbal-lock at exactly the steep angles a subxiphoid view requires. A learner-initiated <i>recentre</i> captures a reference pose and the phone transmits <i>q</i><sub>ref</sub><sup>−1</sup>·<i>q</i>, which is mandatory in practice because magnetometer heading drifts badly near beds and monitors.</p>
+<p><b>Placement on the skin.</b> The probe is constrained to a surface parameterisation (<i>u</i> around the circumference from the anterior midline, <i>v</i> inferior→superior). Three sources can move it: a touch pad; dead reckoning from <code>devicemotion</code> with a hold-to-move clutch, zero-velocity updates and damping (free-running double integration leaves the body within seconds); and optical flow from the front camera, which measures translation per frame rather than integrating it. The out-of-plane component is discarded on the display, which is the surface constraint and removes a whole axis of drift.</p>
+<p><b>Composition.</b> The probe's world transform is <code>surfaceFrame(u,v) · spin · tilt · q</code>: the surface frame places the probe with its beam axis along the inward normal, the preset supplies a spin about the beam and a tilt about the marker axis, and the sensor quaternion is applied last, so phone rotation means "rotate the probe on the skin", never "set its absolute orientation".</p>
+
+<h2>4. Coordinate conventions</h2>
+<table>
+<tr><th>Frame</th><th>Definition</th><th>Check</th></tr>
+<tr><td>Scene</td><td>Right-handed, metres. +X patient's left, +Y superior, +Z anterior.</td><td><code>left × superior = anterior</code> asserted at startup; throws on failure.</td></tr>
+<tr><td>Camera</td><td>Default on +Z looking at the origin: patient's left on the viewer's right (radiological).</td><td>Magenta <i>L</i> fiducial on the left flank, hidden by default, toggled for checks.</td></tr>
+<tr><td>Probe</td><td>Beam along local −Y; scan plane is local XY; local +X is the orientation marker.</td><td>Panel draws probe +X on its left, where a machine draws the marker dot.</td></tr>
+<tr><td>Source assets</td><td>One named transform per source, applied once in the pipeline and baked into the GLB; the viewer applies none.</td><td>Laterality assertions on anatomy, never on node names, before and after export.</td></tr>
+</table>
+<p>Preset spin signs are a convention, not a search result: spin θ and θ+180° cut the identical plane and return identical pixel counts, differing only in which way round the image is. The marker direction for each window is therefore fixed first (patient's right for transverse views and for the cardiac views cardiology shows marker-right, toward the head for longitudinal views) and only position and tilt are tuned.</p>
+
+<h2>5. Rendering the scan plane</h2>
+<p>One WebGL context draws two scissored viewports. The 3D view and the 2D panel are separated by <i>render layer</i>, not by scene: layer 0 carries surfaces, ghosts and colour caps; layer 1 carries only the stencil passes and the flat-grey caps; layer 2 carries bone alone, for shadows.</p>
+<figure>
+<pre class="mermaid">
+sequenceDiagram
+  participant M as main.js
+  participant O as CappedOrgan ×N
+  participant G as GPU
+  M->>M: slerp attitude, probe = surfaceFrame·spin·tilt·q
+  M->>M: scanPlane = setFromNormalAndCoplanarPoint(probe +Z, probe pos)
+  loop 3D pass (layer 0)
+    O->>G: surface, clipped by plane
+    O->>G: back faces ++stencil, front faces −−stencil
+    O->>G: colour cap where stencil ≠ 0, then clearStencil()
+  end
+  loop 2D pass (layer 1, orthographic down the plane normal)
+    O->>G: stencil passes, grey cap (if plane ∩ bounding box)
+  end
+  M->>G: bone mask (layer 2) → march toward apex → shadow
+  M->>G: composite with sRGB encoding → panel
+  M-->>M: echo state to phones (≤10 Hz, on change)
+</pre>
+<figcaption>Figure 2. One frame. The panel is an orthographic camera looking down the plane normal at the same clipped meshes, with a depth range generous enough to contain each organ whole; isolating the cut face is the job of the layer split, not the depth range.</figcaption>
+</figure>
+<p><b>Capping.</b> Clipping discards fragments, so a clipped solid reads as a bowl. Per mesh, back faces increment the stencil buffer and front faces decrement it; a quad on the plane paints wherever the count is non-zero; the stencil is cleared per mesh, without which cap colours bleed between organs. A cap is skipped unless the plane intersects the organ's bounding box, because stencil parity assumes closed surfaces and not every source mesh is closed; the guard localises a leak rather than fixing it. Cap quads are positioned in world space every frame and attached to the scene root, never to a transform node.</p>
+<p><b>Acoustic shadow</b> is the one acoustic effect modelled, because rib shadows are why the cardiac and right-upper-quadrant windows sit where they do. The panel is rendered to a target, bone alone to a second, and each pixel marches back toward the transducer apex; crossing bone puts it in shadow, leaving a bright cortical rind. The composite ends with the output colour-space encoding; the render targets are linear, and omitting that step ships every grey roughly squared.</p>
+<p><b>Greys</b> are assigned per tissue class, not simulated. Fluid-filled structures are near-black because anechoic blood, bile and urine is the one convention every learner expects.</p>
+
+<h2>6. Anatomy assets and the pipeline</h2>
+<table>
+<tr><th>Model</th><th>Source</th><th>Licence</th><th>Shipped</th></tr>
+<tr><td>Whole body (adult male)</td><td>BodyParts3D, DBCLS</td><td>CC BY 4.0</td><td rowspan="2">One GLB, 60 meshes, ≈436k triangles, 2.3 MB Draco. Combined work: CC BY-SA 4.0.</td></tr>
+<tr><td>Five abdominal-wall muscles</td><td>Z-Anatomy</td><td>CC BY-SA 4.0</td></tr>
+<tr><td>Female pelvis</td><td>Visible Korean Human, Ajou University</td><td>CC BY-NC 4.0</td><td>Separate GLB, 24 meshes, ≈264k triangles, 3.0 MB. Never merged with the above: NonCommercial and ShareAlike cannot coexist in one work.</td></tr>
+</table>
+<figure>
+<pre class="mermaid">
+flowchart TD
+  A["BodyParts3D OBJ parts"] --> B["import, bake world matrix"]
+  Z["Z-Anatomy .blend"] --> ZR["append, register on the shared liver landmark,<br/>flip faces of the mirrored side"]
+  B --> C{"weld — open or non-manifold edges?"}
+  C -->|clean| E
+  C -->|few non-manifold| D1["tier 1: hole-fill"]
+  C -->|torn| D2["tier 2: voxel remesh, voxel ≤ wall/2.5"]
+  D1 & D2 --> E["decimate to budget, re-close, validate"]
+  E --> H["fuse ventricle + atrial walls at 1 mm"]
+  E --> L["derive lumens: bladder, gallbladder"]
+  ZR --> E
+  H & L --> T["SOURCE_TO_SCAHN: rotate, mm→m, recentre SI"]
+  T --> S2["skin: crop to trunk, decimate"]
+  T --> X["assert laterality on anatomy"]
+  X --> G["export Draco GLB"]
+  G --> V["re-import, assert again"]
+</pre>
+<figcaption>Figure 3. The BodyParts3D build. Repair is two-tier because a blanket remesh took the liver from 1,480 to 73,148 triangles while fixing two bad edges; the remesh voxel is capped by wall thickness because a voxel larger than the wall deletes it.</figcaption>
+</figure>
+<p>Budgets keep the frame affordable: the skeleton is decimated per element to 120k triangles before joining (ribs and sternum, which shadow windows, keep more detail than vertebral bodies), organs are capped at 20k, valves are exempt because their free edges are the leaflets, and the three heart-wall shells are voxel-fused into one epicardial surface so the atria no longer sit on the ventricles as separate lobes. The pelvis is post-processed from its shipped GLB (the slice stack is not retained): the bladder lumen is an inward offset followed by a remesh, and the ureters and urethra are rebuilt as swept tubes along a binned principal-axis centreline, which is watertight by construction.</p>
+
+<h2>7. Named windows</h2>
+<p>Eight windows (subxiphoid, parasternal long and short, apical four-chamber, RUQ, LUQ, suprapubic, transverse aorta) are stored per model as (<i>u</i>, <i>v</i>, spin, tilt). Position and tilt were tuned by a sweep that paints every organ a unique identifier grey, forces the shadow floor to zero and scores the panel per organ with the shadow pass on, so a window scores only for tissue the learner would see. Cardiac windows score the weakest of their required chambers, so three chambers cannot beat four. The pelvis model defines only the suprapubic window; the viewer reports any other window as unavailable rather than moving the probe to a position tuned against a different body.</p>
+
+<h2>8. Protocol and relay</h2>
+<p>The Durable Object is hibernation-safe by construction: no timers, a byte-exact auto-responded heartbeat that never wakes it, an alarm for room expiry, per-socket identity in socket attachments, and storage writes only on join, claim and close — never per frame, since 30 Hz writes would exhaust the free tier. Exactly one phone drives; frames from any other are dropped at the relay. Handoff is explicit (<i>Take control</i>), but a phone joining while the recorded driver has no socket takes over, and identities without a socket for two minutes are pruned. The display is the authority on probe state and echoes it to every phone, so a phone's controls show the screen rather than their own last input. Limits: 60 frames/s and 4 KiB per socket, 16 live phones per room, 10-minute idle expiry, 30 rooms per IP per hour and 200 live rooms, the last two enforced by two more instances of the same Durable Object class named <code>quota:&lt;ip&gt;</code> and <code>quota:global</code>.</p>
+
+<h2>9. Validation</h2>
+<ul>
+<li><b>Laterality</b> is asserted on anatomy before and after export (spleen at greater X than liver; heart above liver above bladder; liver anterior to the retroperitoneal adrenals) and, for appended muscles, by containment inside the skin, because relative-order checks passed while the whole set sat 10 cm too deep.</li>
+<li><b>Panel correctness</b> is checked by reading pixels back: with the shadow pass on, a liver pixel must read exactly its assigned grey (133), and on the transverse window the liver's centroid must sit in the left half of the panel.</li>
+<li><b>Protocol</b> behaviour (pairing, single controller, isolation, token-replay reconnect, handoff after departure, state echo, heartbeat, hardening) is covered by an integration suite that runs unchanged against the Node relay, the local Worker and production.</li>
+<li><b>Performance</b> is measured with <code>gl.finish()</code>; timing submit calls alone swings threefold between runs and once produced a wrong diagnosis of ghost-mode cost.</li>
+</ul>
+
+<h2>10. Limitations</h2>
+<p>No acoustic simulation beyond bone shadow. Window positions are measured, not clinically reviewed. The whole-body model is an adult male and the pelvis a separate female dataset; neither is a clinical population. Thin sheet muscles are the hardest meshes to close and may show residual capping artefacts when the muscle layer is on. Per-sensor latency is not reported, because the heartbeat that would measure it never wakes the Durable Object. A six-digit code is the only room secret; creation is quota-limited, join attempts are not.</p>
+
+<h2>11. Future work</h2>
+<p>Planned, in order (see <code>ROADMAP.md</code>): freeze, calipers that exist as 3D segments on the scan plane and are visible inside the anatomy in ghost mode, and image export for teaching slides; a volumetric cross-section (a labelled voxel volume sampled by one fragment shader) that removes the watertightness requirement, the stencil machinery and the bone-mask pass at lower cost; and, on either substrate, a phase-locked beating heart, pulsing arteries with a collapsing IVC, and colour and spectral Doppler modelled geometrically from assigned flow directions.</p>
+
+<h2>References</h2>
+<ol class="refs">
+<li>Mitsuhashi N, Fujieda K, Tamura T, Kawamoto S, Takagi T, Okubo K. BodyParts3D: 3D structure database for anatomical concepts. <i>Nucleic Acids Res.</i> 2009;37:D782–5. Data: The Database Center for Life Science, CC BY 4.0.</li>
+<li>Kervyn G et al. Z-Anatomy, an open-source 3D anatomy atlas. <a href="https://www.z-anatomy.com/">z-anatomy.com</a>, CC BY-SA 4.0.</li>
+<li>Park JS, Chung MS, Hwang SB, Lee YS, Har DH, Park HS. Visible Korean Human: improved serially sectioned images of the entire body. <i>IEEE Trans Med Imaging.</i> 2005;24(3):352–60. Female pelvis data used under CC BY-NC 4.0.</li>
+<li>three.js, <code>webgl_clipping_stencil</code> example (stencil-buffer capping reference) and the retired <code>DeviceOrientationControls</code>.</li>
+<li>W3C. DeviceOrientation Event Specification; Generic Sensor API: AbsoluteOrientationSensor.</li>
+<li>Cloudflare. Durable Objects: WebSocket Hibernation API and Alarms.</li>
+<li>Google. Draco 3D data compression.</li>
+</ol>
+
+<p class="back"><a href="../">← Back to the viewer</a></p>
+</main>
+<script type="module">
+  // Mermaid is loaded on this page only, from a CDN; the viewer and phone
+  // stay single-origin. If it fails to load, the diagram source stays visible
+  // as text, which is still a complete description.
+  try {
+    const m = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs');
+    m.default.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'strict' });
+    await m.default.run({ querySelector: '.mermaid' });
+  } catch (e) {
+    console.warn('mermaid unavailable; showing diagram source', e);
+  }
+</script>
+</body>
+</html>

@@ -6,6 +6,8 @@
  * the *same* code rather than asking for a new one.
  */
 
+import { LIMITS, PING_FRAME } from '@scahn/protocol';
+
 const STORAGE_KEY = 'scahn.viewer.room';
 
 export class ViewerLink {
@@ -20,6 +22,11 @@ export class ViewerLink {
     this.ws = null;
     this.retry = 0;
     this._closed = false;
+    /** Last roster frame, so the UI can repaint it (language change) without
+     *  waiting for the relay to send another. */
+    this.lastRoster = null;
+    this._missedPongs = 0;
+    this._heartbeat = null;
 
     // Safari suspends sockets when the tab backgrounds; re-check on return.
     document.addEventListener('visibilitychange', () => {
@@ -64,6 +71,7 @@ export class ViewerLink {
     ws.onopen = () => {
       this.retry = 0;
       this.onStatus('connected');
+      this._startHeartbeat();
       // Rejoin an existing room if we have one, else ask for a fresh code.
       if (this.room) this.send({ type: 'join', role: 'display', room: this.room });
       else this.send({ type: 'create' });
@@ -80,6 +88,7 @@ export class ViewerLink {
     };
 
     ws.onclose = () => {
+      this._stopHeartbeat();
       this.onStatus('disconnected');
       if (this._closed) return;
       // Exponential backoff, capped. Reconnecting is normal, not exceptional.
@@ -88,6 +97,31 @@ export class ViewerLink {
     };
 
     ws.onerror = () => ws.close();
+  }
+
+  /**
+   * Client-initiated heartbeat. The Worker cannot send one (no timers in a
+   * hibernating Durable Object) and answers ours without waking, so this is
+   * the only liveness signal on that path: an idle display otherwise sits on a
+   * half-open socket that nothing ever notices. Missed pongs close the socket,
+   * and the close handler reconnects.
+   */
+  _startHeartbeat() {
+    this._stopHeartbeat();
+    this._missedPongs = 0;
+    this._heartbeat = setInterval(() => {
+      if (this.ws?.readyState !== WebSocket.OPEN) return;
+      if (++this._missedPongs > LIMITS.MISSED_PONGS) {
+        this.ws.close();
+        return;
+      }
+      this.ws.send(PING_FRAME);
+    }, LIMITS.HEARTBEAT_MS);
+  }
+
+  _stopHeartbeat() {
+    if (this._heartbeat) clearInterval(this._heartbeat);
+    this._heartbeat = null;
   }
 
   _handle(msg) {
@@ -104,6 +138,7 @@ export class ViewerLink {
         }
         break;
       case 'roster':
+        this.lastRoster = msg;
         this.onRoster(msg);
         break;
       case 'orient':
@@ -114,6 +149,9 @@ export class ViewerLink {
         break;
       case 'ping':
         this.send({ type: 'pong', t: msg.t });
+        break;
+      case 'pong':
+        this._missedPongs = 0;
         break;
       case 'error':
         // The room we remembered is gone (relay restarted, or it aged out).
@@ -127,7 +165,17 @@ export class ViewerLink {
     }
   }
 
+  /** Repaint the roster from the last frame received. */
+  refreshRoster() {
+    if (this.lastRoster) this.onRoster(this.lastRoster);
+  }
+
   send(obj) {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(obj));
+  }
+
+  /** Echo the display's probe state to every phone in the room. */
+  sendState(state) {
+    this.send({ type: 'state', ...state });
   }
 }

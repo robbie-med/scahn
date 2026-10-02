@@ -5,6 +5,7 @@
   --muted: #8b98a8;
   --accent: #4ea3ff;
   --active: #46d98a;
+  --warn: #ffb454;
   /* The L fiducial colour, kept in sync with scene.js FIDUCIAL_COLOR. */
   --fiducial: #ff3fb4;
 }
@@ -31,24 +32,55 @@ html, body {
   top: 0; left: 0;
 }
 
-.badge {
+/* ---- top strip: the disclaimer ------------------------------------------ */
+/*
+ * In normal flow at the very top, full width, one line. main.js measures its
+ * height and starts both viewports below it, so it never overlaps the image —
+ * it used to float over the top of the 3D view and collide with every badge.
+ */
+.disclaimer {
   position: absolute;
-  top: 12px;
-  left: 12px;
+  top: 0; left: 0; right: 0;
+  z-index: 5;
+  padding: 5px 14px;
+  background: rgba(255, 180, 84, 0.12);
+  border-bottom: 1px solid rgba(255, 180, 84, 0.45);
+  color: #ffd9a3;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: center;
+}
+.disclaimer b { color: var(--warn); }
+
+/* ---- top chrome ------------------------------------------------------------ */
+/*
+ * Absolutely positioned; main.js sets `top` (below the disclaimer) and, in the
+ * wide layout, `width` to the 3D viewport so nothing sits over the panel. The
+ * container passes clicks through to the canvas; only its children catch them.
+ */
+#topbar {
+  position: absolute;
+  left: 0; top: 0;
+  z-index: 6;
+  padding: 10px 12px 6px;
+  display: grid;
+  gap: 6px;
+  pointer-events: none;
+}
+#topbar > * { pointer-events: auto; }
+#topbar .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.badge {
   padding: 6px 12px;
   border-radius: 999px;
   background: rgba(20, 24, 29, 0.85);
   border: 1px solid #2a323c;
   font-weight: 600;
   letter-spacing: 0.01em;
+  white-space: nowrap;
 }
-.badge-right { left: auto; right: 12px; }
 
 #about-btn {
-  position: absolute;
-  top: 12px;
-  right: 168px;
-  z-index: 7;
   width: 30px; height: 30px;
   border-radius: 50%;
   border: 1px solid #2a323c;
@@ -59,6 +91,22 @@ html, body {
 }
 #about-btn:hover { color: var(--ink); border-color: var(--accent); }
 
+#model-picker { display: grid; gap: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button {
+  font: 600 12px/1 ui-sans-serif, system-ui, sans-serif;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid #2a323c;
+  background: rgba(20, 24, 29, 0.9);
+  color: var(--muted);
+  cursor: pointer;
+}
+.chips button.on { background: var(--accent); border-color: var(--accent); color: #06101c; }
+.chips button:disabled { opacity: 0.5; cursor: default; }
+.model-status { color: var(--muted); font-size: 11px; min-height: 1.2em; max-width: 420px; }
+
+/* ---- about ------------------------------------------------------------------ */
 #about {
   position: absolute; inset: 0; z-index: 20;
   background: rgba(4, 6, 9, 0.72);
@@ -111,61 +159,35 @@ html, body {
 }
 .tool { font-size: 12.5px; color: #c3cdd8; margin: 0 0 5px; }
 
-#model-picker {
-  position: absolute;
-  top: 52px;
-  left: 12px;
-  z-index: 6;
-  display: grid;
-  gap: 6px;
-  max-width: 320px;
-}
-.chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chips button {
-  font: 600 12px/1 ui-sans-serif, system-ui, sans-serif;
-  padding: 8px 12px;
-  border-radius: 999px;
-  border: 1px solid #2a323c;
-  background: rgba(20, 24, 29, 0.9);
-  color: var(--muted);
-  cursor: pointer;
-}
-.chips button.on { background: var(--accent); border-color: var(--accent); color: #06101c; }
-.chips button:disabled { opacity: 0.5; cursor: default; }
-.model-status { color: var(--muted); font-size: 11px; min-height: 1.2em; }
-
-.disclaimer {
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: min(560px, 60vw);
-  padding: 8px 14px;
-  border-radius: 10px;
-  background: rgba(255, 180, 84, 0.14);
-  border: 1px solid rgba(255, 180, 84, 0.5);
-  color: #ffd9a3;
-  font-size: 12px;
-  text-align: center;
-  z-index: 5;
-}
-.disclaimer b { color: var(--warn); }
-
+/* ---- pairing card ------------------------------------------------------------ */
+/*
+ * Full card (QR, URL, language) until a phone joins; then it collapses to a
+ * one-line strip — code, QR button, roster — so it stops covering a quarter of
+ * the anatomy for the rest of the session. The QR button re-expands it for the
+ * next learner. main.js keeps it inside the 3D viewport.
+ */
 #pairing {
   position: absolute;
   left: 12px;
   bottom: 12px;
   width: 260px;
-  padding: 16px;
+  padding: 14px 16px;
   border-radius: 14px;
   background: rgba(20, 24, 29, 0.92);
   border: 1px solid #2a323c;
   backdrop-filter: blur(6px);
+  z-index: 6;
 }
-#pairing.paired { width: 220px; }
-#pairing.paired #qr, #pairing.paired .lede, #pairing.paired .hint { display: none; }
-
-#pairing h1 { margin: 0 0 4px; font-size: 18px; letter-spacing: 0.04em; }
+.pair-head { display: flex; align-items: center; gap: 10px; }
+#pairing h1 { margin: 0; font-size: 18px; letter-spacing: 0.04em; flex: 1; }
+#show-qr {
+  display: none;
+  font: 600 11px/1 ui-sans-serif, system-ui, sans-serif;
+  padding: 6px 10px; border-radius: 999px;
+  border: 1px solid #2a323c; background: transparent; color: var(--muted); cursor: pointer;
+}
+#show-qr[aria-pressed="true"], #show-qr:hover { border-color: var(--accent); color: var(--accent); }
+.pair-body { display: block; }
 .lede { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
 .hint { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
 .hint b { color: var(--ink); font-weight: 600; }
@@ -174,12 +196,14 @@ html, body {
 #qr svg { width: 100%; height: auto; display: block; }
 
 .code {
-  margin-top: 10px;
+  margin: 10px 0 0;
   font: 700 30px/1.1 ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.16em;
   text-align: center;
   color: var(--accent);
 }
+.pair-head .code { display: none; }
+#pairing .pair-body .code-slot { margin-top: 10px; }
 
 #roster { margin-top: 12px; display: grid; gap: 6px; }
 .sensor {
@@ -194,6 +218,18 @@ html, body {
 .sensor .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sensor .rtt { color: var(--muted); font-variant-numeric: tabular-nums; }
 
+/* Paired and not re-expanded: the strip. */
+#pairing.paired:not(.expanded) { width: auto; max-width: 340px; padding: 8px 12px; }
+#pairing.paired:not(.expanded) .pair-body { display: none; }
+#pairing.paired:not(.expanded) .pair-head .code {
+  display: block; margin: 0; font-size: 16px; letter-spacing: 0.1em;
+}
+#pairing.paired:not(.expanded) h1 { font-size: 14px; flex: 0 0 auto; }
+#pairing.paired:not(.expanded) #roster { margin-top: 6px; gap: 4px; }
+#pairing.paired:not(.expanded) .sensor { padding: 3px 8px; }
+#pairing.paired #show-qr { display: inline-block; }
+
+/* ---- debug drawer ------------------------------------------------------------ */
 #debug {
   position: absolute;
   right: 12px;
@@ -204,6 +240,7 @@ html, body {
   background: rgba(20, 24, 29, 0.92);
   border: 1px solid #2a323c;
   font-size: 12px;
+  z-index: 6;
 }
 #debug summary { cursor: pointer; color: var(--muted); user-select: none; }
 #debug .row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
@@ -214,6 +251,22 @@ html, body {
 #stats dd { margin: 0; font-variant-numeric: tabular-nums; }
 
 .warn { color: #ffb454; }
+
+/* ---- narrow (stacked) layout ------------------------------------------------ */
+/*
+ * Below 900 px the panels stack, 2D on top. The top chrome becomes a strip
+ * that layout() reserves room for (so it is not drawn over the sector), the
+ * credit line and the debug drawer go away, and the pairing card becomes a
+ * bottom strip across the full width.
+ */
+#app.narrow #topbar { width: 100%; padding: 6px 10px; gap: 4px; background: rgba(11, 13, 16, 0.96); }
+#app.narrow .badge { padding: 4px 10px; font-size: 12px; }
+#app.narrow .chips button { padding: 6px 10px; font-size: 11px; }
+#app.narrow #model-status { display: none; }
+#app.narrow #debug { display: none; }
+#app.narrow #pairing { left: 10px; right: 10px; bottom: 10px; width: auto; max-width: none; }
+#app.narrow #pairing:not(.paired) #qr { max-width: 180px; margin: 0 auto; }
+#app.narrow .disclaimer { font-size: 11px; padding: 4px 10px; }
 
 /* ---- language toggle ------------------------------------------------------ */
 /*

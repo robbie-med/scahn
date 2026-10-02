@@ -10,13 +10,13 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { MODES, PRESET_LABELS, PRESET_PROBE } from '@scahn/protocol';
-import { applyStatic, initLangToggle, onLangChange, t, tPreset } from '@scahn/protocol/i18n';
+import { MODES, PRESETS, PRESET_LABELS, PRESET_PROBE } from '@scahn/protocol';
+import { applyStatic, initLangToggle, t, tPreset } from '@scahn/protocol/i18n';
 
 import { assertHandedness, createFiducials, createRenderer, createScene } from './scene.js';
 import {
-  TORSO, TORSO_DEFAULTS, WINDOWS, createTorsoMesh, fitTorsoTo, setTorso,
-  setSkinSurface, surfaceFrame, torsoCircumference,
+  TORSO, TORSO_DEFAULTS, createTorsoMesh, fitTorsoTo, setTorso,
+  setSkinSurface, surfaceFrame, torsoCircumference, windowsFor,
 } from './torso.js';
 import {
   BEAM_PROFILES, clampDepth, createBeam, createProbeModel, disposeBeam,
@@ -27,7 +27,7 @@ import { CappedOrgan, LAYER_3D, updateScanPlane } from './capping.js';
 import { Panel2D } from './panel2d.js';
 import { ViewerLink } from './net.js';
 import { Stats, phoneUrl, renderQr, renderRoster } from './ui.js';
-import { initAbout } from './about.js';
+import { initAbout, renderAbout } from './about.js';
 
 assertHandedness();
 
@@ -41,7 +41,8 @@ const scene = createScene();
 
 const camera3d = new THREE.PerspectiveCamera(42, 1, 0.01, 20);
 // Default camera on +Z looking at the origin: patient's left on the viewer's
-// right, matching radiological convention (CONVENTIONS.md §2).
+// right, matching radiological convention (CONVENTIONS.md §2). frameTorso()
+// moves it to fit whatever body is loaded.
 camera3d.position.set(0.05, 0.12, 0.72);
 camera3d.layers.set(LAYER_3D);
 
@@ -50,7 +51,8 @@ controls.target.set(0, 0.02, 0);
 controls.enableDamping = true;
 controls.dampingFactor = 0.12;
 
-scene.add(createFiducials());
+const fiducials = createFiducials();
+scene.add(fiducials);
 
 const skin = createTorsoMesh();
 scene.add(skin);
@@ -114,7 +116,8 @@ function setMuscles(on) {
   renderFrame();
 }
 
-/** World-space bounds of the non-bone anatomy, for refitting the skin shell. */
+/** World-space bounds of the non-bone anatomy, for refitting the skin shell
+ *  and framing the camera. */
 function worldAnatomyBox() {
   scene.updateMatrixWorld(true);
   const box = new THREE.Box3();
@@ -126,6 +129,35 @@ function worldAnatomyBox() {
     box.union(tmp);
   }
   return box;
+}
+
+/**
+ * Put the camera where the whole trunk is in view.
+ *
+ * Framed on the anatomy's lateral/AP extent and the skin's full height, so
+ * the arms on the BodyParts3D skin do not push the camera back, and the
+ * 25 cm pelvis model does not sit as a small lump in the middle of a torso-
+ * sized frame. Run on every model swap: the old fixed position cropped the
+ * trunk and parked the cardiac probe positions under the top chrome.
+ */
+function frameTorso() {
+  const box = worldAnatomyBox();
+  skin.geometry.computeBoundingBox();
+  const sb = skin.geometry.boundingBox;
+  if (box.isEmpty()) box.copy(sb);
+  box.min.y = Math.min(box.min.y, sb.min.y);
+  box.max.y = Math.max(box.max.y, sb.max.y);
+  const centre = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const fov = (camera3d.fov * Math.PI) / 180;
+  // Fit the larger of height and (width / aspect), with a margin, plus the
+  // half-depth so the near face is not what gets measured.
+  const span = Math.max(size.y, size.x / camera3d.aspect) * 1.2;
+  const dist = span / 2 / Math.tan(fov / 2) + size.z / 2;
+  controls.target.copy(centre);
+  camera3d.position.copy(centre)
+    .add(new THREE.Vector3(0.12, 0.3, 1).normalize().multiplyScalar(dist));
+  controls.update();
 }
 
 function tearDownOrgans() {
@@ -153,7 +185,7 @@ async function setModel(id) {
       setTorso(TORSO_DEFAULTS, skin);
       setModelStatus('');
     } else {
-      const { organs: list, skinGeometry, credit, box } = await loadModel(id, {
+      const { organs: list, skinGeometry, credit } = await loadModel(id, {
         onProgress: (f) => setModelStatus(
           t('viewer.loadingPct', { model: MODELS[id].label, pct: Math.round(f * 100) })),
       });
@@ -176,6 +208,10 @@ async function setModel(id) {
       setModelStatus(credit);
     }
     modelId = id;
+    // Windows are per model: re-seat the current one on the new body, or
+    // report it unavailable.
+    if (state.preset) applyPreset(state.preset);
+    frameTorso();
   } catch (err) {
     console.error('model load failed', err);
     setModelStatus(t('viewer.loadFailed',
@@ -221,6 +257,8 @@ const state = {
   },
   /** Depth-resolved profile for the current transducer; set by rebuildBeam(). */
   profile: null,
+  /** While in the future, incoming phone depth is ignored (see applyPreset). */
+  depthLockUntil: 0,
   invertClip: false,
   showBeam: true,
   /** Latest orientation from the phone, and the smoothed value we render. */
@@ -249,8 +287,12 @@ function rebuildBeam() {
   state.profile = beam.userData.profile;
 }
 
+/** Idempotent. The phone sends `probe` in every 30 Hz frame, so without the
+ *  early return the sector geometry was disposed and reallocated thirty times
+ *  a second for as long as anyone was driving. */
 function setProbeType(name) {
   if (!BEAM_PROFILES[name]) return;
+  if (beam && name === state.probeType) return;
   state.probeType = name;
   rebuildBeam();
 }
@@ -264,15 +306,36 @@ function setDepth(metres) {
   rebuildBeam();
 }
 
+/**
+ * Snap to a named window ON THE CURRENT MODEL.
+ *
+ * A window the loaded model has no placement for (the pelvis has no heart)
+ * says so in the badge and leaves the probe where it is, rather than moving
+ * it to a spot tuned against a different body.
+ */
 function applyPreset(name) {
-  const w = WINDOWS[name];
-  if (!w) return;
+  const w = windowsFor(modelId)[name];
+  if (!w) {
+    if (PRESETS.includes(name)) {
+      state.preset = null;
+      windowNameEl.textContent = t('viewer.windowUnavailable', { window: tPreset(name) });
+    }
+    return;
+  }
   state.preset = name;
   state.u = w.u;
   state.v = w.v;
   state.spin = w.spin;
   state.tilt = w.tilt;
   setProbeType(PRESET_PROBE[name] ?? state.probeType);
+  if (w.depth != null) {
+    setDepth(w.depth);
+    // The phone keeps sending its own depth until the state echo reaches it
+    // (≤ 100 ms throttle plus a round trip, and it ignores echoes of a value
+    // it changed itself for 600 ms). Hold the window's depth over incoming
+    // frames for that long, or the phone's stale value wins the next frame.
+    state.depthLockUntil = performance.now() + 1500;
+  }
   windowNameEl.textContent = PRESET_LABELS[name] ? tPreset(name) : name;
 }
 
@@ -331,6 +394,21 @@ function setMode(mode) {
 let rect3d = { x: 0, y: 0, w: 1, h: 1 };
 let rect2d = { x: 0, y: 0, w: 1, h: 1 };
 
+const appEl = document.getElementById('app');
+const bannerEl = document.getElementById('prealpha');
+const topbarEl = document.getElementById('topbar');
+const debugEl = document.getElementById('debug');
+
+/**
+ * Viewports and chrome.
+ *
+ * The disclaimer strip is reserved above both viewports, so it can never sit
+ * on the image. In the wide layout the rest of the chrome (badges, model
+ * chips, pairing card, debug drawer) is confined to the 3D viewport's width,
+ * so nothing is ever drawn over the ultrasound panel — the mode badge used
+ * to cover the panel's depth-scale label. In the narrow layout the chrome is
+ * a strip under the disclaimer and the panels start below it.
+ */
 function layout() {
   const W = window.innerWidth;
   const H = window.innerHeight;
@@ -343,15 +421,27 @@ function layout() {
   }
   renderer.setSize(W, H, false);
 
-  if (W >= 900) {
+  const narrow = W < 900;
+  appEl.classList.toggle('narrow', narrow);
+  const bannerH = bannerEl.offsetHeight;
+  topbarEl.style.top = `${bannerH}px`;
+  let top = bannerH;
+  if (narrow) top += topbarEl.offsetHeight;
+  const avail = Math.max(H - top, 1);
+
+  if (!narrow) {
     const split = Math.round(W * 0.6);
-    rect3d = { x: 0, y: 0, w: split, h: H };
-    rect2d = { x: split, y: 0, w: W - split, h: H };
+    rect3d = { x: 0, y: top, w: split, h: avail };
+    rect2d = { x: split, y: top, w: W - split, h: avail };
+    topbarEl.style.width = `${split}px`;
+    debugEl.style.right = `${W - split + 12}px`;
   } else {
     // Narrow: stack, 2D panel on top.
-    const top = Math.round(H * 0.42);
-    rect2d = { x: 0, y: 0, w: W, h: top };
-    rect3d = { x: 0, y: top, w: W, h: H - top };
+    const panelH = Math.round(avail * 0.42);
+    rect2d = { x: 0, y: top, w: W, h: panelH };
+    rect3d = { x: 0, y: top + panelH, w: W, h: avail - panelH };
+    topbarEl.style.width = '';
+    debugEl.style.right = '';
   }
 
   camera3d.aspect = rect3d.w / rect3d.h;
@@ -389,7 +479,7 @@ function tick() {
 }
 
 /** One full frame. Split out from the rAF loop so headless checks can drive it
- *  directly — see scripts/smoke.md. */
+ *  directly — see CLAUDE.md, "Verifying changes". */
 function renderFrame() {
   stats.tick();
   controls.update();
@@ -432,6 +522,43 @@ function renderFrame() {
     'u,v': `${state.u.toFixed(2)}, ${state.v.toFixed(2)}`,
     depth: `${Math.round((state.profile?.depth ?? 0) * 100)} cm`,
   });
+
+  publishState();
+}
+
+// ---------------------------------------------------------------------------
+// state echo to the phones
+// ---------------------------------------------------------------------------
+
+let lastStateJson = '';
+let lastStateAt = 0;
+
+/**
+ * Tell every phone where the probe actually is.
+ *
+ * The display is the authority: presets move the probe, physical moves move
+ * it, another phone may be driving. Without this each phone kept its own
+ * (u, v) from the last pad drag, so the first drag after a preset teleported
+ * the probe out of the window; and a phone taking control overwrote the
+ * transducer and depth with whatever it last had. Sent only on change, at
+ * most ten times a second, and in full whenever the roster changes so a phone
+ * that just joined starts in sync.
+ */
+function publishState(force = false) {
+  const snap = {
+    u: Number(state.u.toFixed(4)),
+    v: Number(state.v.toFixed(4)),
+    preset: state.preset,
+    probe: state.probeType,
+    depth: state.depthByType[state.probeType],
+    mode: state.mode,
+  };
+  const json = JSON.stringify(snap);
+  const now = performance.now();
+  if (!force && (json === lastStateJson || now - lastStateAt < 100)) return;
+  lastStateJson = json;
+  lastStateAt = now;
+  link.sendState(snap);
 }
 
 // ---------------------------------------------------------------------------
@@ -477,6 +604,13 @@ document.getElementById('show-beam').addEventListener('change', (e) => {
   state.showBeam = e.target.checked;
   if (beam) beam.visible = state.showBeam;
 });
+document.getElementById('show-fiducials').addEventListener('change', (e) => {
+  fiducials.visible = e.target.checked;
+});
+document.getElementById('show-qr').addEventListener('click', (e) => {
+  const on = pairingEl.classList.toggle('expanded');
+  e.currentTarget.setAttribute('aria-pressed', String(on));
+});
 
 window.addEventListener('keydown', (e) => {
   if (e.key === '1' || e.key === '2' || e.key === '3') setMode(Number(e.key));
@@ -494,7 +628,14 @@ const link = new ViewerLink({
   },
   onRoster(roster) {
     renderRoster(rosterEl, roster);
-    pairingEl.classList.toggle('paired', roster.sensors.length > 0);
+    const paired = roster.sensors.length > 0;
+    pairingEl.classList.toggle('paired', paired);
+    if (!paired) {
+      pairingEl.classList.remove('expanded');
+      document.getElementById('show-qr').setAttribute('aria-pressed', 'false');
+    }
+    // A phone just joined or left: make sure everyone has the full picture.
+    publishState(true);
   },
   onOrient(msg) {
     stats.noteOrient(msg);
@@ -507,7 +648,7 @@ const link = new ViewerLink({
     if (msg.dpos) applyPhysicalMove(msg.dpos);
     if (msg.preset) applyPreset(msg.preset);
     if (msg.probe) setProbeType(msg.probe);
-    if (msg.depth != null) setDepth(msg.depth);
+    if (msg.depth != null && performance.now() > (state.depthLockUntil ?? 0)) setDepth(msg.depth);
   },
   onMode: setMode,
   onStatus(s) {
@@ -527,8 +668,9 @@ initLangToggle(document.getElementById('lang-toggle'), () => {
   windowNameEl.textContent = state.preset
     ? tPreset(state.preset) : t('viewer.freePlacement');
   modeNameEl.textContent = t(`mode.${state.mode}`);
-  link.refreshRoster?.();
-  initAbout();
+  link.refreshRoster();
+  renderAbout();
+  layout(); // the disclaimer strip may have wrapped differently
 });
 
 renderModelChips();
@@ -538,18 +680,19 @@ setMuscles(false);
 initAbout();
 applyPreset('aorta-transverse');
 layout();
+frameTorso();
 link.connect();
 tick();
 // Primitives are already on screen; swap in the real anatomy as soon as the
 // download finishes.
 setModel('bodyparts3d');
 
-// Handy for the browser-console smoke tests in scripts/smoke.md.
+// Handy for the browser-console smoke tests (CLAUDE.md, "Verifying changes").
 window.scahn = {
   state, get organs() { return organs; }, probe, scanPlane, ghostPlane, panel, skin,
   get beam() { return beam; }, setDepth,
-  renderer, camera3d, scene, setMode, applyPreset, setProbeType,
-  renderFrame, setModel, setMuscles, get showMuscles() { return showMuscles; },
+  renderer, camera3d, controls, scene, fiducials, setMode, applyPreset, setProbeType,
+  renderFrame, setModel, setMuscles, frameTorso, get showMuscles() { return showMuscles; },
   get modelId() { return modelId; }, torso: () => ({ ...TORSO }), circumference: torsoCircumference,
-  rect3d: () => rect3d, rect2d: () => rect2d, THREE,
+  windowsFor, rect3d: () => rect3d, rect2d: () => rect2d, THREE,
 };
