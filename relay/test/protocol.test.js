@@ -303,6 +303,23 @@ describe('freeze', () => {
   });
 });
 
+describe('dynamics', () => {
+  it('forwards the driver\'s dyn controls and rejects an impossible heart rate', async () => {
+    const display = await open({ role: 'display' });
+    send(display, { type: 'create' });
+    const { room } = await until(display, (m) => m.type === 'created');
+    const driver = await open({ role: 'sensor', room });
+    send(driver, { type: 'join', role: 'sensor', room, name: 'driver' });
+    await until(driver, (m) => m.type === 'joined');
+    send(driver, { type: 'dyn', bpm: 90, doppler: 1 });
+    const d = await until(display, (m) => m.type === 'dyn');
+    assert.equal(d.bpm, 90);
+    assert.equal(d.doppler, 1);
+    send(driver, { type: 'dyn', bpm: 400 });
+    assert.equal((await until(driver, (m) => m.type === 'error')).code, 'bad_frame');
+  });
+});
+
 describe('heartbeat', () => {
   it('answers the byte-exact client ping with a pong', async () => {
     const ws = await open({ role: 'display' });

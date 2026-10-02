@@ -95,6 +95,20 @@
         <div id="modes" class="chips"></div>
       </div>
 
+      <div class="group">
+        <div class="group-label" data-i18n="phone.doppler">Doppler</div>
+        <div id="dyn-chips" class="chips">
+          <button id="pulse" type="button" aria-pressed="true" data-i18n="phone.pulse">Pulse</button>
+          <button id="doppler" type="button" aria-pressed="false" data-i18n="phone.doppler">Doppler</button>
+        </div>
+        <div class="group-label" data-i18n="phone.heartRate">Heart rate</div>
+        <div class="stepper">
+          <button id="bpm-down" type="button" aria-label="Slower">&minus;</button>
+          <span id="bpm-val">70 bpm</span>
+          <button id="bpm-up" type="button" aria-label="Faster">+</button>
+        </div>
+      </div>
+
       <p id="status" class="msg"></p>
     </section>
 

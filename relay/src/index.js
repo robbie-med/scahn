@@ -285,6 +285,16 @@ function handleFrame(socket, meta, msg) {
       return;
     }
 
+    case 'dyn': {
+      const room = meta.roomCode ? registry.get(meta.roomCode) : null;
+      if (!room || meta.role !== 'sensor') return;
+      if (room.activeSensorId !== meta.sensorId) return;
+      room.touch();
+      const { bpm, paused, doppler, nyquist } = msg;
+      toDisplays(room, { type: 'dyn', bpm, paused, doppler, nyquist });
+      return;
+    }
+
     case 'state': {
       // The display's authoritative probe state, fanned out to every phone so
       // their controls mirror the screen. Displays only.

@@ -14,8 +14,8 @@
 
 import { applyStatic, initLangToggle, t, tPreset } from '@scahn/protocol/i18n';
 import {
-  DEPTH_LIMITS, LIMITS, MODES, PRESETS, PRESET_LABELS, PRESET_PROBE, PROBE_TYPES, TUTORIALS,
-  clampDepth,
+  BPM_LIMITS, DEPTH_LIMITS, LIMITS, MODES, PRESETS, PRESET_LABELS, PRESET_PROBE, PROBE_TYPES,
+  TUTORIALS, clampDepth,
 } from '@scahn/protocol';
 import { OrientationSource, guessDeviceName } from './orientation.js';
 import { TranslationSource } from './translation.js';
@@ -67,8 +67,12 @@ const state = {
   shownPreset: null,
   /** Display is frozen (echoed); we can only ask to toggle it while driving. */
   frozen: false,
+  /** Dynamics, echoed from the display. */
+  bpm: 70,
+  paused: false,
+  doppler: 0,
   /** When each thing was last changed HERE, for the echo guard. */
-  touched: { surf: 0, probe: 0, depth: 0, mode: 0, preset: 0, freeze: 0 },
+  touched: { surf: 0, probe: 0, depth: 0, mode: 0, preset: 0, freeze: 0, dyn: 0 },
 };
 
 // Pre-fill from the QR deep link (?room=418306) so scanning lands paired.
@@ -158,6 +162,7 @@ function paintControl() {
   statePill.classList.toggle('driving', state.driving);
   claimBtn.classList.toggle('hidden', state.driving);
   paintFreeze();
+  paintDyn();
 }
 
 /** Freeze is the display's state; only the driver may change it. */
@@ -175,6 +180,26 @@ $('freeze').addEventListener('click', () => {
   link?.send({ type: 'freeze', on: state.frozen });
   paintFreeze();
 });
+
+/** Dynamics controls: driver only, like freeze. */
+function paintDyn() {
+  $('pulse').setAttribute('aria-pressed', String(!state.paused));
+  $('doppler').setAttribute('aria-pressed', String(state.doppler > 0));
+  $('doppler').textContent = state.doppler === 2 ? `${t('phone.doppler')} · P` : t('phone.doppler');
+  $('bpm-val').textContent = `${state.bpm} bpm`;
+  for (const id of ['pulse', 'doppler', 'bpm-down', 'bpm-up']) $(id).disabled = !state.driving;
+}
+function sendDyn(patch) {
+  Object.assign(state, patch);
+  state.touched.dyn = Date.now();
+  link?.send({ type: 'dyn', ...patch });
+  paintDyn();
+}
+$('pulse').addEventListener('click', () => sendDyn({ paused: !state.paused }));
+// Off -> colour -> power -> off.
+$('doppler').addEventListener('click', () => sendDyn({ doppler: (state.doppler + 1) % 3 }));
+$('bpm-down').addEventListener('click', () => sendDyn({ bpm: Math.max(BPM_LIMITS.min, state.bpm - BPM_LIMITS.step) }));
+$('bpm-up').addEventListener('click', () => sendDyn({ bpm: Math.min(BPM_LIMITS.max, state.bpm + BPM_LIMITS.step) }));
 
 /** Readouts the display measured; the phone only lists them. */
 function renderCalipers(list) {
@@ -215,6 +240,12 @@ function adoptState(msg) {
   if (msg.mode && stale('mode')) state.mode = msg.mode;
   if ('preset' in msg && stale('preset')) state.shownPreset = msg.preset;
   if ('frozen' in msg && stale('freeze')) state.frozen = !!msg.frozen;
+  if (stale('dyn')) {
+    if (msg.bpm != null) state.bpm = msg.bpm;
+    if (msg.paused != null) state.paused = !!msg.paused;
+    if (msg.doppler != null) state.doppler = msg.doppler;
+  }
+  paintDyn();
   if (Array.isArray(msg.calipers)) renderCalipers(msg.calipers);
   paintFreeze();
   paintTutorial();

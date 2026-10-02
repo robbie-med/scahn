@@ -28,8 +28,8 @@ validated.
 There is also no acoustic simulation, by design. The 2D panel is a geometric
 cross-section with flat per-organ greys and one acoustic effect — shadowing
 behind bone — not a simulated B-mode image: no speckle, attenuation or
-artefact. See `ROADMAP.md` for what is planned (freeze and calipers, image
-export, a beating heart, pulsing vessels, Doppler).
+artefact. The beating heart and Doppler are geometry on a clock, not
+haemodynamics. See `ROADMAP.md` for what is planned next.
 
 ## Running a session
 
@@ -51,9 +51,13 @@ inside the anatomy in ghost mode (`X` clears); **Save image** (`S`) writes a
 PNG with the window, transducer, depth and attribution burned in; **Learn**
 opens the POCUS 101 or POCUS Atlas tutorial for the current window beside
 the image. The phone can freeze, lists the caliper readouts, and links the
-tutorial. An **Engine** chip switches the cross-section between stencil
-capping of the meshes and a sampled label volume (faster, no watertightness
-requirement, voxel edges).
+tutorial. An **Engine** chip switches the cross-section between a sampled
+label volume (the default: faster, no watertightness requirement, sub-voxel
+edges) and stencil capping of the meshes (the reference). On the volume
+engine the heart beats, the aorta pulses, the IVC collapses with breathing,
+and **Doppler** (`D`, colour then power) colours flow by its component along
+the beam; **Pulse** (`P`) pauses the clock, and the Debug drawer has the
+heart rate and the Doppler scale. The phone has the same three controls.
 
 **Recenter is not optional.** Magnetometer heading drifts badly near hospital
 beds, metal furniture and monitors. Press it whenever the probe feels off-axis.

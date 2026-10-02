@@ -151,12 +151,17 @@ return the sector geometry was rebuilt thirty times a second.
 
 ### The Volume engine (`volume.js`) — the alternative to capping
 
-Selected with the Engine chips (`state.engine`, default `mesh`). `pipeline/voxelize.py`
+Selected with the Engine chips (`state.engine`, default `volume`; Mesh stays as the reference). `pipeline/voxelize.py`
 turns a shipped GLB into a label volume (one byte per voxel, scene axes, gzipped; the
 viewer decompresses with `DecompressionStream`). `volume.js` draws the panel as ONE quad
 whose fragment shader maps panel pixel → probe-local → world → voxel → label → grey, and
 marches toward the apex through the same volume for the bone shadow; the 3D cut face is a
-quad riding the probe with the same shader in colour. With this engine the organs'
+quad riding the probe with the same shader in colour. Edges are sub-voxel: `labelSmooth`
+takes the trilinear argmax of the eight neighbouring labels, which puts every boundary at
+the 0.5 crossing between voxel centres. The shadow floor is the sRGB encoding of Panel2D's
+linear 0.06, because this shader works in the palette's sRGB greys while Panel2D attenuates
+in linear light and encodes afterwards; without that the engines disagreed fourfold inside
+every rib shadow. With this engine the organs'
 stencil passes and caps are switched off (`CappedOrgan.setCapsEnabled(false)`), and the
 bone-mask pass does not run. Measured 3–4 ms/frame at 2 mm and ~7 ms at the shipped 1.5 mm, against 9–12 ms for capping.
 Palettes come from `classify()` in `models.js`, so both engines name and grey tissue
@@ -167,6 +172,22 @@ switches in the shader. Regenerate the volume after any GLB rebuild:
 blender --background --factory-startup --python pipeline/voxelize.py -- \
   clients/viewer/public/models/bodyparts3d.glb clients/viewer/public/models/bodyparts3d 1.5
 ```
+
+### Dynamics (`dynamics.js`) — only on the Volume engine
+
+One clock (`Dynamics`: bpm, phase, respiration, pause) drives one field. The volume shader
+applies it as an INVERSE warp (`source(w) = w + d(w)`) before sampling; the heart and big
+vessel meshes apply it FORWARD in their vertex shaders via `attachMeshDynamics`. The heart
+field is apex-anchored (the base descends), ventricular cavities contract more than the wall
+so the wall thickens, and the fused wall's atrial part blends to the atrial curve by position
+along the long axis — label alone cannot tell the two apart in one mesh. Doppler colours
+lumen labels inside the colour box by the assigned flow's component along the beam, with
+Nyquist wrap and a wall filter; the flow table is anatomy, not geometry, in `buildFlow`.
+Controls: `P`/`D`, the Pulse and Doppler buttons, rate and scale in Debug, the phone's
+`dyn` message (driver only), all echoed in `state`. On the Mesh engine the field is off:
+stencil caps would not follow it. Preset keys are the `PRESETS` strings
+(`apical-four-chamber`, not `a4c`): `applyPreset` with an unknown key is a silent no-op,
+which once made a deformation test measure the wrong window.
 
 ### Freeze, calipers, image export, tutorials
 

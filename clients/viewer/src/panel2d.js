@@ -333,7 +333,7 @@ export class Panel2D {
    * the FROZEN tag and the calipers. Both draw into their own <g>, re-appended
    * after the dressing when it was rebuilt.
    */
-  drawLive(frozen, calipers, probe, pending) {
+  drawLive(frozen, calipers, probe, pending, dopplerBox = null) {
     if (!this._live || !this.svg.contains(this._live)) {
       this._live = document.createElementNS(SVG_NS, 'g');
       this._live.setAttribute('id', 'live');
@@ -354,6 +354,21 @@ export class Panel2D {
       t.setAttribute('letter-spacing', '0.12em');
       t.textContent = 'FROZEN';
       g.appendChild(t);
+    }
+    if (dopplerBox) {
+      // The colour box, as machines draw it: a dashed outline in the sector.
+      const [x0, y0] = this._map(dopplerBox.x1, dopplerBox.y1);
+      const [x1, y1] = this._map(dopplerBox.x0, dopplerBox.y0);
+      const r = document.createElementNS(SVG_NS, 'rect');
+      r.setAttribute('x', String(Math.min(x0, x1)));
+      r.setAttribute('y', String(Math.min(y0, y1)));
+      r.setAttribute('width', String(Math.abs(x1 - x0)));
+      r.setAttribute('height', String(Math.abs(y1 - y0)));
+      r.setAttribute('fill', 'none');
+      r.setAttribute('stroke', '#9fd0ff');
+      r.setAttribute('stroke-width', '1');
+      r.setAttribute('stroke-dasharray', '4 3');
+      g.appendChild(r);
     }
     if (calipers) calipers.draw2D(this.svg, probe, (lx, ly) => this._map(lx, ly), pending);
   }

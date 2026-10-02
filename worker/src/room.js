@@ -287,6 +287,12 @@ export class Room {
         return this.toDisplays(enc({ type: 'freeze', on: msg.on }));
       }
 
+      case 'dyn': {
+        if (att.role !== 'sensor' || att.id !== (await this.active())) return;
+        const { bpm, paused, doppler, nyquist } = msg;
+        return this.toDisplays(enc({ type: 'dyn', bpm, paused, doppler, nyquist }));
+      }
+
       case 'state': {
         // The display's authoritative probe state, fanned out to every phone
         // so their controls mirror the screen. Displays only; no storage.

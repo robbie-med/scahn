@@ -39,6 +39,8 @@
           <button id="caliper-clear" type="button" data-i18n="viewer.clearCalipers">Clear</button>
           <button id="save-btn" type="button" data-i18n="viewer.saveImage">Save image</button>
           <button id="learn-btn" type="button" data-i18n="viewer.learn">Learn</button>
+          <button id="pulse-btn" type="button" aria-pressed="true" data-i18n="viewer.pulse">Pulse</button>
+          <button id="doppler-btn" type="button" aria-pressed="false" data-i18n="viewer.doppler">Doppler</button>
         </div>
         <div id="model-picker">
           <div id="model-chips" class="chips"></div>
@@ -95,6 +97,8 @@
         <div class="row"><label><input id="show-beam" type="checkbox" checked /> <span data-i18n="viewer.beamSector">Beam sector</span></label></div>
         <div class="row"><label><input id="show-fiducials" type="checkbox" /> <span data-i18n="viewer.fiducials">Fiducials</span></label></div>
         <div class="row"><label><input id="save-panel-only" type="checkbox" /> <span data-i18n="viewer.panelOnly">Save panel only</span></label></div>
+        <div class="row"><label><span data-i18n="viewer.heartRate">Heart rate</span> <input id="bpm" type="range" min="40" max="160" step="5" value="70" /></label><span id="bpm-val">70</span></div>
+        <div class="row"><label><span data-i18n="viewer.dopplerScale">Doppler scale</span> <input id="nyquist" type="range" min="0.1" max="2" step="0.1" value="0.6" /></label><span id="nyquist-val">0.6</span></div>
         <dl id="stats"></dl>
       </details>
     </div>

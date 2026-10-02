@@ -1,10 +1,12 @@
 # ROADMAP
 
-Status (2026-10-01): **Part A is built** (freeze, calipers, image export,
-tutorial links; probe models pending the asset conversion). **Part C ships as
-a prototype** behind the Engine chip. **Parts B and D are planned, not
-started.** This file exists so the first implementation session does not
-re-derive the constraints the renderer imposes. Parts:
+Status (2026-10-01): **Parts A, B and C are built** (freeze, calipers,
+image export, tutorial links, probe models; the volume engine with sub-voxel
+edges is the default; the clock, beating heart, pulsing aorta, collapsing
+IVC, and colour and power Doppler run on it). **Part D is planned, not
+started.** Spectral (PW) Doppler from Part B is not built. This file exists
+so the next implementation session does not re-derive the constraints the
+renderer imposes. Parts:
 
 - **Part A — freeze, calipers, image export.** Small, no pipeline work, and
   the first thing a teacher asks for. Do this first.
@@ -396,33 +398,42 @@ What is still open before it can replace the mesh engine: edge quality
 per-organ distance-field refinement above), and the preset sweep has only
 been run on the mesh engine.
 
-## Plan for finishing the volume engine (≈ 3 days) — NOT STARTED
+## Finishing the volume engine — DONE except step 3's deletion
 
-1. **Sub-voxel edges** (1½ days). Per organ, a signed-distance grid in the
-   organ's own bounding box at 3 mm (`pipeline/voxelize.py --sdf`, computed
-   from the same ray casts: distance to the nearest surface crossing along
-   the three axes, then a Euclidean distance transform in numpy), packed
-   into one 3D texture atlas with a per-label offset table. In the shader:
-   look up the label as now, then refine the boundary by sampling the
-   organ's SDF with trilinear filtering and treating the 0 crossing as the
-   edge; where two labels meet, the one with the smaller distance wins.
-   Acceptance: the mesh and volume panels agree to within one voxel on the
-   organ silhouettes on all eight windows, measured as the symmetric
-   difference of each organ's pixel mask.
+1. **Sub-voxel edges — built differently.** Instead of a distance-field
+   atlas, `labelSmooth` in `volume.js` takes the trilinear argmax of the
+   eight voxels around the sample: each label's indicator is interpolated
+   and the heaviest wins, which puts every boundary at the 0.5 crossing
+   between voxel centres, the surface marching cubes would extract. No new
+   data, eight fetches per sample, stair-steps gone. A distance atlas is
+   still the route if edges ever need to be better than a quarter voxel.
+   Checked: per-grey pixel histograms of the two engines agree on all eight
+   windows to within the shadow gamma, after the volume shader's shadow
+   floor was re-expressed in sRGB to match Panel2D's linear-then-encode.
 2. **Re-run the window sweep on the volume engine** (½ day) with the id-grey
    harness from `torso.js`; keep the mesh engine's values unless a window
    moves by more than 0.02 in u or v, and record both.
-3. **Retire capping** (1 day). Make Volume the default engine, keep Mesh
-   selectable for one release, then delete `capping.js`, the stencil
-   layers, the bone-mask pass and the repair tiers in the pipeline
-   (`bodyparts3d.py` keeps weld + decimate + the heart fuse; `pipeline.py`
-   shrinks to the lumen derivation). The pelvis pipeline stops needing
-   `kvh_repair.py`'s tubes once the volume comes from the slice stack.
+3. **Retire capping** — Volume is now the default engine and Mesh stays
+   selectable as the reference. The deletion (`capping.js`, the stencil
+   layers, the bone-mask pass, the repair tiers) is deliberately left for a
+   later release, after a few sessions on the volume engine.
 4. **Pelvis straight from the slices** (½ day, when the stack is available):
    `kvh_pelvis.py --volume` writes the label volume directly from the
    segmented BMPs at 1 mm, bypassing every mesh step.
 
-## Plan for Part B on the volume engine — NOT STARTED
+## Part B on the volume engine — BUILT (except PW Doppler)
+
+What shipped: `dynamics.js` (clock with rate and respiration, the ventricle,
+atrium, artery and inspiration curves, the heart field with the apex fixed
+and the base descending, aorta pulsation and IVC collapse about their own
+axes, the flow table), applied as an inverse warp in `volume.js` and
+forward in the heart and vessel mesh materials; colour Doppler (BART,
+Nyquist wrap, wall filter, colour box) and power Doppler on the lumen
+labels; controls on the display (Pulse, Doppler, `P`/`D`, rate and scale in
+Debug) and on the phone (driver only), echoed in `state`. Measured: the
+chamber area on the four cardiac windows falls 17–26 % between end-diastole
+and end-systole (ventricles plus the unchanged atria together). Not built:
+spectral PW Doppler. The original plan follows for reference.
 
 Everything in Part B above holds, with these substitutions once the volume
 engine is the renderer:

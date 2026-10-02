@@ -11,12 +11,13 @@ import { LIMITS, PING_FRAME } from '@scahn/protocol';
 const STORAGE_KEY = 'scahn.viewer.room';
 
 export class ViewerLink {
-  constructor({ onCreated, onRoster, onOrient, onMode, onFreeze, onStatus }) {
+  constructor({ onCreated, onRoster, onOrient, onMode, onFreeze, onDyn, onStatus }) {
     this.onCreated = onCreated;
     this.onRoster = onRoster;
     this.onOrient = onOrient;
     this.onMode = onMode;
     this.onFreeze = onFreeze ?? (() => {});
+    this.onDyn = onDyn ?? (() => {});
     this.onStatus = onStatus ?? (() => {});
 
     this.room = sessionStorage.getItem(STORAGE_KEY) || null;
@@ -150,6 +151,9 @@ export class ViewerLink {
         break;
       case 'freeze':
         this.onFreeze(!!msg.on);
+        break;
+      case 'dyn':
+        this.onDyn(msg);
         break;
       case 'ping':
         this.send({ type: 'pong', t: msg.t });

@@ -10,7 +10,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { MODES, PRESETS, PRESET_LABELS, PRESET_PROBE, TUTORIALS, TUTORIAL_SOURCES } from '@scahn/protocol';
+import { BPM_LIMITS, MODES, NYQUIST_LIMITS, PRESETS, PRESET_LABELS, PRESET_PROBE, TUTORIALS, TUTORIAL_SOURCES } from '@scahn/protocol';
 import { applyStatic, initLangToggle, t, tPreset } from '@scahn/protocol/i18n';
 
 import { assertHandedness, createFiducials, createRenderer, createScene } from './scene.js';
@@ -26,6 +26,7 @@ import { MODELS, loadModel } from './models.js';
 import { CappedOrgan, LAYER_3D, updateScanPlane } from './capping.js';
 import { Panel2D } from './panel2d.js';
 import { VolumeEngine } from './volume.js';
+import { Dynamics, attachMeshDynamics, dynKindFor, makeDynUniforms, updateDynUniforms } from './dynamics.js';
 import { Calipers } from './calipers.js';
 import { imageFilename, saveImage } from './export.js';
 import { ViewerLink } from './net.js';
@@ -100,6 +101,16 @@ function buildFrom(list, ownsGeometry) {
   // for models that actually contain bone.
   panel.shadowEnabled = organs.some((o) => o.bone);
   organsOwnGeometry = ownsGeometry;
+  // Dynamics geometry from the anatomy (apex, long axis, vessel axes) and the
+  // forward deformation on the moving organs' surfaces.
+  dynamics.fit(organs);
+  for (const o of organs) {
+    const kind = dynKindFor(o.name);
+    if (!kind) continue;
+    attachMeshDynamics(o.surface.material, dynUniforms, kind);
+    attachMeshDynamics(o.ghost.material, dynUniforms, kind);
+  }
+  if (volume.ready) volume.setFlow(dynamics.flow);
 }
 let organsOwnGeometry = false;
 
@@ -163,9 +174,15 @@ function frameTorso() {
   controls.update();
 }
 
-/** Caps and stencil passes are the mesh engine's; the volume draws its own cut. */
+/** Caps and stencil passes are the mesh engine's; the volume draws its own cut.
+ *  While a volume is still loading (or a model has none) the caps stay on. */
+let capsOn = null;
 function applyEngineToOrgans() {
-  for (const o of organs) o.setCapsEnabled(state.engine === 'mesh');
+  const useVolume = state.engine === 'volume' && volume.ready && MODELS[modelId]?.volume;
+  const want = !useVolume;
+  if (want === capsOn && organs.every((o) => o.capsEnabled === want)) return;
+  capsOn = want;
+  for (const o of organs) o.setCapsEnabled(want);
 }
 
 async function setEngine(id) {
@@ -176,7 +193,7 @@ async function setEngine(id) {
     try {
       setModelStatus(t('viewer.loading', { model: t('viewer.engineVolume') }));
       await volume.load(prefix, (f) => setModelStatus(
-        t('viewer.loadingPct', { model: t('viewer.engineVolume'), pct: Math.round(f * 100) })));
+        t('viewer.loadingPct', { model: t('viewer.engineVolume'), pct: Math.round(f * 100) })), dynamics.flow);
       setModelStatus(MODELS[modelId].credit ?? '');
     } catch (err) {
       console.error('volume load failed', err);
@@ -262,7 +279,7 @@ async function setModel(id) {
       const prefix = MODELS[id].volume;
       try {
         if (!prefix) throw new Error('no volume for this model');
-        await volume.load(prefix);
+        await volume.load(prefix, null, dynamics.flow);
       } catch (err) {
         console.warn('volume unavailable, back to mesh:', err?.message ?? err);
         state.engine = 'mesh';
@@ -310,8 +327,14 @@ const panel = new Panel2D(document.getElementById('panel-overlay'));
  * from a label volume instead of stencil-capped from the meshes. Its 3D cut
  * face rides the probe. Selected with the Engine chips; `state.engine`.
  */
-const volume = new VolumeEngine();
+const dynUniforms = makeDynUniforms();
+const volume = new VolumeEngine(dynUniforms);
 probe.add(volume.cutQuad);
+
+/** The cardiac/respiratory clock, deformation fields and flow table
+ *  (dynamics.js). Deformation renders only on the Volume engine: the mesh
+ *  engine's stencil caps would not follow it. */
+const dynamics = new Dynamics();
 
 /** Calipers live in world space and draw in both views (calipers.js). */
 const calipers = new Calipers();
@@ -323,8 +346,10 @@ scene.add(calipers.group);
 
 const state = {
   mode: MODES.RAY,
-  /** 'mesh' (stencil capping) or 'volume' (label volume). */
-  engine: 'mesh',
+  /** 'mesh' (stencil capping) or 'volume' (label volume). Volume is the
+   *  default: it is cheaper, needs no watertight meshes, and carries the
+   *  dynamics. Mesh stays selectable as the reference. */
+  engine: 'volume',
   /** Frozen: the stream is received but not applied (ROADMAP A1). */
   frozen: false,
   /** Caliper placement mode: the panel overlay takes clicks. */
@@ -605,10 +630,19 @@ function renderFrame() {
   // The panel frustum first: the volume engine's 3D cut face needs it too.
   panel.update(probe, state.profile);
   calipers.update3D();
-  panel.drawLive(state.frozen, calipers, probe, state.pending);
-  const useVolume = state.engine === 'volume' && volume.ready;
+  const useVolume = state.engine === 'volume' && volume.ready && !!MODELS[modelId]?.volume;
+  applyEngineToOrgans();
+  dynamics.tick(performance.now());
+  updateDynUniforms(dynUniforms, dynamics, useVolume);
+  const dyn = dynamics.sample();
+  const dopplerState = useVolume ? {
+    mode: dynamics.doppler, nyquist: dynamics.nyquist,
+    chamberFlow: dyn.chamberFlow, pulse: dyn.pulse, insp: dyn.insp,
+  } : null;
   volume.cutQuad.visible = useVolume && state.mode !== MODES.RAY;
-  if (useVolume) volume.update(probe, state.profile, panel.view, showMuscles);
+  if (useVolume) volume.update(probe, state.profile, panel.view, showMuscles, dopplerState);
+  panel.drawLive(state.frozen, calipers, probe, state.pending,
+    useVolume && dynamics.doppler ? volume.box : null);
 
   // --- 3D pass ---
   for (const o of organs) o.update(camera3d);
@@ -665,6 +699,10 @@ function publishState(force = false) {
     mode: state.mode,
     frozen: state.frozen,
     calipers: calipers.toWire(),
+    bpm: dynamics.bpm,
+    paused: dynamics.paused,
+    doppler: dynamics.doppler,
+    engine: state.engine,
   };
   const json = JSON.stringify(snap);
   const now = performance.now();
@@ -827,6 +865,33 @@ async function exportImage() {
 }
 document.getElementById('save-btn').addEventListener('click', exportImage);
 
+// --- dynamics ------------------------------------------------------------------
+
+const pulseBtn = document.getElementById('pulse-btn');
+const dopplerBtn = document.getElementById('doppler-btn');
+const bpmEl = document.getElementById('bpm');
+const nyquistEl = document.getElementById('nyquist');
+
+/** Apply dynamics controls from any source (buttons, keys, the phone). */
+function setDyn({ bpm, paused, doppler, nyquist } = {}) {
+  if (bpm != null) dynamics.bpm = Math.min(BPM_LIMITS.max, Math.max(BPM_LIMITS.min, bpm));
+  if (paused != null) dynamics.paused = !!paused;
+  if (doppler != null) dynamics.doppler = doppler;
+  if (nyquist != null) dynamics.nyquist = Math.min(NYQUIST_LIMITS.max, Math.max(NYQUIST_LIMITS.min, nyquist));
+  pulseBtn.setAttribute('aria-pressed', String(!dynamics.paused));
+  dopplerBtn.setAttribute('aria-pressed', String(dynamics.doppler > 0));
+  dopplerBtn.textContent = dynamics.doppler === 2 ? `${t('viewer.doppler')} · ${t('viewer.power')}` : t('viewer.doppler');
+  bpmEl.value = String(dynamics.bpm);
+  document.getElementById('bpm-val').textContent = String(dynamics.bpm);
+  nyquistEl.value = String(dynamics.nyquist);
+  document.getElementById('nyquist-val').textContent = dynamics.nyquist.toFixed(1);
+}
+pulseBtn.addEventListener('click', () => setDyn({ paused: !dynamics.paused }));
+// Off -> colour -> power -> off.
+dopplerBtn.addEventListener('click', () => setDyn({ doppler: (dynamics.doppler + 1) % 3 }));
+bpmEl.addEventListener('input', (e) => setDyn({ bpm: Number(e.target.value) }));
+nyquistEl.addEventListener('input', (e) => setDyn({ nyquist: Number(e.target.value) }));
+
 // --- tutorial drawer ---------------------------------------------------------------
 
 const learnFrame = document.getElementById('learn-frame');
@@ -871,6 +936,8 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'f' || e.key === 'F') setFrozen(!state.frozen);
   else if (e.key === 's' || e.key === 'S') exportImage();
   else if (e.key === 'c' || e.key === 'C') setPlacing(!state.placing);
+  else if (e.key === 'd' || e.key === 'D') setDyn({ doppler: (dynamics.doppler + 1) % 3 });
+  else if (e.key === 'p' || e.key === 'P') setDyn({ paused: !dynamics.paused });
   else if (e.key === 'x' || e.key === 'X') { calipers.clear(); setPlacing(false); }
   else if (e.key === 'Escape' && state.placing) setPlacing(false);
 });
@@ -918,6 +985,7 @@ const link = new ViewerLink({
   },
   onMode: setMode,
   onFreeze: setFrozen,
+  onDyn: setDyn,
   onStatus(s) {
     document.getElementById('pair-hint').classList.toggle('warn', s !== 'connected');
   },
@@ -937,6 +1005,7 @@ initLangToggle(document.getElementById('lang-toggle'), () => {
     ? tPreset(state.preset) : t('viewer.freePlacement');
   modeNameEl.textContent = t(`mode.${state.mode}`);
   link.refreshRoster();
+  setDyn();
   renderAbout();
   layout(); // the disclaimer strip may have wrapped differently
 });
@@ -964,6 +1033,7 @@ window.scahn = {
   renderFrame, setModel, setMuscles, frameTorso, get showMuscles() { return showMuscles; },
   volume, setEngine, get engine() { return state.engine; },
   calipers, setFrozen, setPlacing, exportImage, tutorialFor,
+  dynamics, setDyn, dynUniforms,
   get modelId() { return modelId; }, torso: () => ({ ...TORSO }), circumference: torsoCircumference,
   windowsFor, rect3d: () => rect3d, rect2d: () => rect2d, THREE,
 };

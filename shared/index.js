@@ -16,6 +16,7 @@ export const CLIENT_MSG_TYPES = Object.freeze([
   'orient',
   'mode',
   'freeze',
+  'dyn',
   'state',
   'ping',
   'pong',
@@ -29,6 +30,7 @@ export const SERVER_MSG_TYPES = Object.freeze([
   'orient',
   'mode',
   'freeze',
+  'dyn',
   'state',
   'ping',
   'pong',
@@ -62,6 +64,11 @@ export const PRESETS = Object.freeze([
 ]);
 
 export const MODES = Object.freeze({ RAY: 1, CUT: 2, GHOST: 3 });
+
+/** Dynamics limits: heart rate and the Doppler scale (Nyquist, m/s). */
+export const BPM_LIMITS = Object.freeze({ min: 40, max: 160, step: 5 });
+export const DOPPLER_MODES = Object.freeze({ OFF: 0, COLOUR: 1, POWER: 2 });
+export const NYQUIST_LIMITS = Object.freeze({ min: 0.1, max: 2.0 });
 
 /** Calipers on the display, lettered A-D as machines do. */
 export const MAX_CALIPERS = 4;
@@ -217,6 +224,14 @@ export function validateClientFrame(msg) {
       if (typeof msg.on !== 'boolean') return ERRORS.BAD_FRAME;
       return null;
 
+    case 'dyn':
+      // Driving phone -> display: dynamics controls. All optional.
+      if (msg.bpm != null && (!isFiniteNum(msg.bpm) || msg.bpm < BPM_LIMITS.min || msg.bpm > BPM_LIMITS.max)) return ERRORS.BAD_FRAME;
+      if (msg.paused != null && typeof msg.paused !== 'boolean') return ERRORS.BAD_FRAME;
+      if (msg.doppler != null && ![0, 1, 2].includes(msg.doppler)) return ERRORS.BAD_FRAME;
+      if (msg.nyquist != null && (!isFiniteNum(msg.nyquist) || msg.nyquist < NYQUIST_LIMITS.min || msg.nyquist > NYQUIST_LIMITS.max)) return ERRORS.BAD_FRAME;
+      return null;
+
     case 'state':
       // Display -> phones. The display is the authority on where the probe is
       // and what it is doing; it echoes that so every phone's controls show the
@@ -237,6 +252,10 @@ export function validateClientFrame(msg) {
         return ERRORS.BAD_FRAME;
       }
       if (msg.frozen != null && typeof msg.frozen !== 'boolean') return ERRORS.BAD_FRAME;
+      if (msg.bpm != null && (!isFiniteNum(msg.bpm) || msg.bpm < BPM_LIMITS.min || msg.bpm > BPM_LIMITS.max)) return ERRORS.BAD_FRAME;
+      if (msg.paused != null && typeof msg.paused !== 'boolean') return ERRORS.BAD_FRAME;
+      if (msg.doppler != null && ![0, 1, 2].includes(msg.doppler)) return ERRORS.BAD_FRAME;
+      if (msg.engine != null && !['mesh', 'volume'].includes(msg.engine)) return ERRORS.BAD_FRAME;
       // Calipers: up to MAX_CALIPERS world-space segments the display measured,
       // echoed so phones can list the readouts. The display owns them.
       if (msg.calipers != null) {
