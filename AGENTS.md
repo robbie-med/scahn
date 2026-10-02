@@ -149,6 +149,25 @@ stack. The fiducials are hidden by default (Debug drawer → Fiducials).
 `setProbeType` is idempotent: the phone sends `probe` in every frame, and before the early
 return the sector geometry was rebuilt thirty times a second.
 
+### The Volume engine (`volume.js`) — the alternative to capping
+
+Selected with the Engine chips (`state.engine`, default `mesh`). `pipeline/voxelize.py`
+turns a shipped GLB into a label volume (one byte per voxel, scene axes, gzipped; the
+viewer decompresses with `DecompressionStream`). `volume.js` draws the panel as ONE quad
+whose fragment shader maps panel pixel → probe-local → world → voxel → label → grey, and
+marches toward the apex through the same volume for the bone shadow; the 3D cut face is a
+quad riding the probe with the same shader in colour. With this engine the organs'
+stencil passes and caps are switched off (`CappedOrgan.setCapsEnabled(false)`), and the
+bone-mask pass does not run. Measured 3–4 ms/frame at 2 mm and ~7 ms at the shipped 1.5 mm, against 9–12 ms for capping.
+Palettes come from `classify()` in `models.js`, so both engines name and grey tissue
+identically; the muscle flag in the palette's blue channel is what the Muscles toggle
+switches in the shader. Regenerate the volume after any GLB rebuild:
+
+```bash
+blender --background --factory-startup --python pipeline/voxelize.py -- \
+  clients/viewer/public/models/bodyparts3d.glb clients/viewer/public/models/bodyparts3d 1.5
+```
+
 ### Capping is the part that makes or breaks it (`capping.js`)
 
 `side: DoubleSide` does **not** produce a solid cross-section; clipping discards fragments, so

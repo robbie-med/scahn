@@ -37,6 +37,7 @@ export const MODELS = Object.freeze({
         + 'uterus, ovaries, vagina and the pelvic floor, none of which the '
         + 'whole-body male model contains.',
     url: 'models/kvh-female-pelvis.glb',
+    volume: 'models/kvh-female-pelvis',
     credit: 'Visible Korean Human (VKH), Ajou University School of Medicine — '
           + 'CC BY-NC 4.0 (non-commercial)',
   },
@@ -45,6 +46,8 @@ export const MODELS = Object.freeze({
     label: 'BodyParts3D',
     note: 'Full-body anatomy from one source, cardiac chambers and valves included.',
     url: 'models/bodyparts3d.glb',
+    /** Label-volume prefix for the Volume engine (pipeline/voxelize.py). */
+    volume: 'models/bodyparts3d',
     // The verbatim string the BodyParts3D README asks for, plus the
     // Z-Anatomy share-alike notice the combined model now carries.
     credit: 'BodyParts3D, © The Database Center for Life Science licensed under '
@@ -135,7 +138,7 @@ const CLASSES = [
   [/trachea|cartilage/i, { label: 'Airway', color: 0xc9c2b4, cap: 0xe6e0d4, grey: 0.72, kind: SOLID }],
 ];
 
-function classify(name) {
+export function classify(name) {
   for (const [re, spec] of CLASSES) if (re.test(name)) return spec;
   return { label: 'Tissue', color: 0x8a8f96, cap: 0xc2c7cd, grey: 0.50, kind: SOLID };
 }

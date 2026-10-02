@@ -290,9 +290,11 @@ export class CappedOrgan {
     this._pos.addScaledVector(this._toCam, COPLANAR_NUDGE * rank);
 
     // `_wantCap` is what setMode asked for; `cut` is whether there is anything
-    // to draw. Both must hold.
-    this.cap.visible = this._wantCap && this.cut;
-    this.capGrey.visible = this.cut;
+    // to draw; `capsEnabled` is false while the Volume engine draws the cut
+    // face instead. All must hold.
+    const enabled = this.capsEnabled !== false;
+    this.cap.visible = enabled && this._wantCap && this.cut;
+    this.capGrey.visible = enabled && this.cut;
 
     for (const cap of [this.cap, this.capGrey]) {
       cap.position.copy(this._pos);
@@ -316,7 +318,7 @@ export class CappedOrgan {
     // meshes write neither colour nor depth, so leaving them enabled costs a
     // draw call and disturbs nothing. In Mode 1's 3D pass they scribble on a
     // stencil buffer that no cap reads, and each pass starts with a clear.
-    this.stencilGroup.visible = true;
+    this.stencilGroup.visible = this.capsEnabled !== false;
     this._wantCap = clipping;
     this.cap.visible = clipping;
     // The 2D panel is always a cross-section, even while the 3D view is in
@@ -324,6 +326,21 @@ export class CappedOrgan {
     // the panel must never go blank just because the 3D view is uncut.
     this.capGrey.visible = true;
     this.ghost.visible = mode === 3;
+  }
+
+  /**
+   * The Volume engine draws the cut face from the label volume, so the stencil
+   * passes and both cap quads are switched off entirely — not just hidden per
+   * frame — which is also what makes that engine cheaper: no stencil passes,
+   * no caps, no bone mask.
+   */
+  setCapsEnabled(on) {
+    this.capsEnabled = !!on;
+    this.stencilGroup.visible = this.capsEnabled;
+    if (!this.capsEnabled) {
+      this.cap.visible = false;
+      this.capGrey.visible = false;
+    }
   }
 
   /** Remove from the scene and release everything. Switching anatomy models

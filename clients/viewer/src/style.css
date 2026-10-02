@@ -104,6 +104,7 @@ html, body {
 }
 .chips button.on { background: var(--accent); border-color: var(--accent); color: #06101c; }
 .chips button:disabled { opacity: 0.5; cursor: default; }
+.chip-label { align-self: center; color: var(--muted); font-size: 11px; margin-left: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
 .model-status { color: var(--muted); font-size: 11px; min-height: 1.2em; max-width: 420px; }
 
 /* ---- about ------------------------------------------------------------------ */

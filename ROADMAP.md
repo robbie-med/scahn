@@ -87,7 +87,40 @@ drop into PowerPoint.
 - iPad Safari: `a.download` works for Blob URLs in 15+; fall back to opening
   the image in a new tab for older versions.
 
-Order inside Part A: A1, then A3 (it needs nothing else), then A2.
+## A4. Tutorial links per window (½ day)
+
+Tap a window on the phone or the display and bring up the matching tutorial
+from The POCUS Atlas or POCUS 101 beside the image. Checked 2026-10-01:
+`thepocusatlas.com` and `pocus101.com` send no `X-Frame-Options` and no
+`frame-ancestors`, so an in-page iframe side panel is possible; test the
+specific article URLs, not just the home page, before relying on it, and
+fall back to opening a new tab (which always works) when a page refuses.
+`pocuscollective.com` denies framing (`X-Frame-Options: DENY`,
+`frame-ancestors 'none'`): link out only.
+
+- Data: a `TUTORIALS` table in `shared/index.js` keyed by preset id, each
+  with `{ source: 'tpa' | 'pocus101', url }`. Display-side "Learn" button in
+  the window badge; phone-side a small link under the window chips (opens
+  on the phone itself, which is often where the learner wants to read).
+- Display: a collapsible right-hand drawer (iframe, `sandbox` without
+  `allow-same-origin`, `referrerpolicy=no-referrer`) that takes 30% of the
+  width and triggers `layout()` so the viewports shrink rather than being
+  covered. "Open in new tab" and "Split" buttons; the split uses
+  `window.open` with a `popup` feature string, which modern browsers place
+  as a side window.
+- Attribution: both sites are credited in the About panel; the iframe shows
+  their page unmodified.
+
+## A5. Transducer models from POCUS Collective (¼ day, pending licence)
+
+`pocuscollective.com` publishes 3D probe models. The current probe is a
+parametric cylinder with a marker notch. If their models are openly
+licensed, add a per-transducer mesh (curvilinear, phased, linear) under
+`clients/viewer/public/models/probes/` and swap `createProbeModel` to load
+it, keeping the notch convention (local +X = marker). Record the licence in
+`credits.js` before anything is shipped; if it is not stated, ask them.
+
+Order inside Part A: A1, then A3 (it needs nothing else), then A2, then A4.
 
 ---
 
@@ -333,6 +366,23 @@ smaller: generate the *volume* from the meshes rather than the meshes from the
 volume, and generate vessels as tubes from centrelines (as `kvh_repair.py`
 now does for the ureters), which is both cheaper and more accurate than
 repairing a scanned tube.
+
+## Status (2026-10-01): prototype shipped behind the Engine chip
+
+`pipeline/voxelize.py` voxelises a shipped GLB by casting one ray per (x, y)
+column and filling runs between entering and exiting crossings; the whole
+BodyParts3D model takes six seconds; the shipped 1.5 mm volume is 0.57 MB
+gzipped (19.6 MB raw) against the 2.3 MB GLB, and a 2 mm one is 0.29 MB. `clients/viewer/src/volume.js` draws
+the panel as one quad and the 3D cut face as a quad riding the probe, from
+one shared fragment shader with the shadow march in it. Measured on the
+same machine, mode 2, per frame with `gl.finish()`: mesh engine 9–12 ms,
+volume engine 3–4 ms at 2 mm and ~7 ms at 1.5 mm. The Muscles toggle is
+honoured in the shader.
+
+What is still open before it can replace the mesh engine: edge quality
+(voxel stair-steps are visible even at 1.5 mm; sub-voxel edges want the
+per-organ distance-field refinement above), and the preset sweep has only
+been run on the mesh engine.
 
 ## Suggested path
 

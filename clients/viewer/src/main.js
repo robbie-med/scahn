@@ -25,6 +25,7 @@ import { buildOrgans } from './organs.js';
 import { MODELS, loadModel } from './models.js';
 import { CappedOrgan, LAYER_3D, updateScanPlane } from './capping.js';
 import { Panel2D } from './panel2d.js';
+import { VolumeEngine } from './volume.js';
 import { ViewerLink } from './net.js';
 import { Stats, phoneUrl, renderQr, renderRoster } from './ui.js';
 import { initAbout, renderAbout } from './about.js';
@@ -160,6 +161,47 @@ function frameTorso() {
   controls.update();
 }
 
+/** Caps and stencil passes are the mesh engine's; the volume draws its own cut. */
+function applyEngineToOrgans() {
+  for (const o of organs) o.setCapsEnabled(state.engine === 'mesh');
+}
+
+async function setEngine(id) {
+  if (id === state.engine || (id !== 'mesh' && id !== 'volume')) return;
+  if (id === 'volume') {
+    const prefix = MODELS[modelId].volume;
+    if (!prefix) return;
+    try {
+      setModelStatus(t('viewer.loading', { model: t('viewer.engineVolume') }));
+      await volume.load(prefix, (f) => setModelStatus(
+        t('viewer.loadingPct', { model: t('viewer.engineVolume'), pct: Math.round(f * 100) })));
+      setModelStatus(MODELS[modelId].credit ?? '');
+    } catch (err) {
+      console.error('volume load failed', err);
+      setModelStatus(String(err?.message ?? err));
+      return;
+    }
+  }
+  state.engine = id;
+  applyEngineToOrgans();
+  renderEngineChips();
+}
+
+function renderEngineChips() {
+  const host = document.getElementById('engine-chips');
+  if (!host) return;
+  host.innerHTML = '';
+  for (const [id, label] of [['mesh', t('viewer.engineMesh')], ['volume', t('viewer.engineVolume')]]) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.className = id === state.engine ? 'on' : '';
+    b.disabled = id === 'volume' && !MODELS[modelId]?.volume;
+    b.addEventListener('click', () => setEngine(id));
+    host.appendChild(b);
+  }
+}
+
 function tearDownOrgans() {
   for (const o of organs) o.dispose(scene, organsOwnGeometry);
   organs = [];
@@ -212,6 +254,20 @@ async function setModel(id) {
     // report it unavailable.
     if (state.preset) applyPreset(state.preset);
     frameTorso();
+    // The volume is per model too: fetch the new one, or fall back to mesh
+    // for a model that has none.
+    if (state.engine === 'volume') {
+      const prefix = MODELS[id].volume;
+      try {
+        if (!prefix) throw new Error('no volume for this model');
+        await volume.load(prefix);
+      } catch (err) {
+        console.warn('volume unavailable, back to mesh:', err?.message ?? err);
+        state.engine = 'mesh';
+      }
+    }
+    applyEngineToOrgans();
+    renderEngineChips();
   } catch (err) {
     console.error('model load failed', err);
     setModelStatus(t('viewer.loadFailed',
@@ -233,12 +289,22 @@ scene.add(probe);
 
 const panel = new Panel2D(document.getElementById('panel-overlay'));
 
+/**
+ * The Volume engine (volume.js, ROADMAP Part C): the cross-section sampled
+ * from a label volume instead of stencil-capped from the meshes. Its 3D cut
+ * face rides the probe. Selected with the Engine chips; `state.engine`.
+ */
+const volume = new VolumeEngine();
+probe.add(volume.cutQuad);
+
 // ---------------------------------------------------------------------------
 // state
 // ---------------------------------------------------------------------------
 
 const state = {
   mode: MODES.RAY,
+  /** 'mesh' (stencil capping) or 'volume' (label volume). */
+  engine: 'mesh',
   probeType: 'curvilinear',
   preset: null,
   u: 0.0,
@@ -503,6 +569,12 @@ function renderFrame() {
 
   renderer.setScissorTest(true);
 
+  // The panel frustum first: the volume engine's 3D cut face needs it too.
+  panel.update(probe, state.profile);
+  const useVolume = state.engine === 'volume' && volume.ready;
+  volume.cutQuad.visible = useVolume && state.mode !== MODES.RAY;
+  if (useVolume) volume.update(probe, state.profile, panel.view, showMuscles);
+
   // --- 3D pass ---
   for (const o of organs) o.update(camera3d);
   applyViewport(rect3d);
@@ -510,14 +582,18 @@ function renderFrame() {
   renderer.render(scene, camera3d);
 
   // --- 2D pass ---
-  panel.update(probe, state.profile);
-  for (const o of organs) o.update(panel.camera);
-  panel.render(renderer, scene, () => applyViewport(rect2d));
+  if (useVolume) {
+    volume.renderPanel(renderer, () => applyViewport(rect2d));
+  } else {
+    for (const o of organs) o.update(panel.camera);
+    panel.render(renderer, scene, () => applyViewport(rect2d));
+  }
 
   renderer.setScissorTest(false);
 
   stats.render({
     mode: state.mode,
+    engine: state.engine,
     probe: state.probeType,
     'u,v': `${state.u.toFixed(2)}, ${state.v.toFixed(2)}`,
     depth: `${Math.round((state.profile?.depth ?? 0) * 100)} cm`,
@@ -664,6 +740,7 @@ initLangToggle(document.getElementById('lang-toggle'), () => {
   // Everything the catalogue does not reach through data-i18n: labels built in
   // JS, and the two badges whose text is derived from live state.
   renderModelChips();
+  renderEngineChips();
   setMuscles(showMuscles);
   windowNameEl.textContent = state.preset
     ? tPreset(state.preset) : t('viewer.freePlacement');
@@ -674,6 +751,7 @@ initLangToggle(document.getElementById('lang-toggle'), () => {
 });
 
 renderModelChips();
+renderEngineChips();
 document.getElementById('muscle-toggle')
   ?.addEventListener('click', () => setMuscles(!showMuscles));
 setMuscles(false);
@@ -693,6 +771,7 @@ window.scahn = {
   get beam() { return beam; }, setDepth,
   renderer, camera3d, controls, scene, fiducials, setMode, applyPreset, setProbeType,
   renderFrame, setModel, setMuscles, frameTorso, get showMuscles() { return showMuscles; },
+  volume, setEngine, get engine() { return state.engine; },
   get modelId() { return modelId; }, torso: () => ({ ...TORSO }), circumference: torsoCircumference,
   windowsFor, rect3d: () => rect3d, rect2d: () => rect2d, THREE,
 };

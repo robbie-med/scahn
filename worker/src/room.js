@@ -110,14 +110,34 @@ export class Room {
     return new Response('ok');
   }
 
-  /** Internal, on `quota:global`: count a room in (503 when full) or out. */
-  async quotaGlobal(delta) {
-    const live = (await this.state.storage.get('live')) ?? 0;
-    if (delta > 0 && live >= LIMITS.MAX_ROOMS) {
-      return new Response('server full', { status: 503 });
+  /**
+   * Internal, on `quota:global`: count a room in (503 when full) or out.
+   *
+   * Not a bare counter. A room that dies without its expiry alarm releasing
+   * it — a lost alarm in production, or a `wrangler dev` killed before the
+   * alarms fired — would leak a count forever, and 200 leaks later nobody
+   * can create a room. So the record is {code: stamp}; a room renews its
+   * stamp on every join, and stamps older than a day are dropped before
+   * counting. A session longer than a day with no phone joining is pruned
+   * from the count, which is harmless.
+   */
+  async quotaGlobal(delta, code) {
+    const now = Date.now();
+    const live = (await this.state.storage.get('live')) ?? {};
+    const rooms = typeof live === 'object' && live !== null ? live : {};
+    for (const [c, t] of Object.entries(rooms)) {
+      if (now - t > 24 * 3_600_000) delete rooms[c];
+    }
+    if (delta > 0) {
+      if (!rooms[code] && Object.keys(rooms).length >= LIMITS.MAX_ROOMS) {
+        return new Response('server full', { status: 503 });
+      }
+      rooms[code] = now;
+    } else {
+      delete rooms[code];
     }
     await this.state.storage.put('kind', 'quota');
-    await this.state.storage.put('live', Math.max(0, live + delta));
+    await this.state.storage.put('live', rooms);
     return new Response('ok');
   }
 
@@ -136,7 +156,7 @@ export class Room {
       const q = await this.quotaStub(ip).fetch('https://scahn.internal/__quota');
       if (!q.ok) return q;
     }
-    const g = await this.quotaStub('global').fetch('https://scahn.internal/__acquire');
+    const g = await this.quotaStub('global').fetch(`https://scahn.internal/__acquire?room=${code}`);
     if (!g.ok) return g;
     await this.state.storage.put('created', Date.now());
     await this.state.storage.put('code', code);
@@ -149,8 +169,8 @@ export class Room {
     const url = new URL(request.url);
 
     if (url.pathname === '/__quota') return this.quotaIp();
-    if (url.pathname === '/__acquire') return this.quotaGlobal(+1);
-    if (url.pathname === '/__release') return this.quotaGlobal(-1);
+    if (url.pathname === '/__acquire') return this.quotaGlobal(+1, url.searchParams.get('room'));
+    if (url.pathname === '/__release') return this.quotaGlobal(-1, url.searchParams.get('room'));
     if (url.pathname === '/__claim') {
       const ip = url.searchParams.get('checked') ? null : (url.searchParams.get('ip') || null);
       return this.claimCode(url.searchParams.get('room'), ip);
@@ -326,8 +346,10 @@ export class Room {
     const active = await this.active();
     if (!active || !sensors[active] || !live.has(active)) await this.setActive(entry.id);
 
-    // The room is now in use; push expiry out to the idle-teardown window.
+    // The room is now in use; push expiry out to the idle-teardown window,
+    // and renew the global live-room stamp (see quotaGlobal).
     await this.state.storage.setAlarm(Date.now() + LIMITS.ROOM_EMPTY_TTL_MS);
+    await this.quotaStub('global').fetch(`https://scahn.internal/__acquire?room=${att.code}`);
 
     ws.send(enc({
       type: 'joined',
@@ -432,7 +454,8 @@ export class Room {
       return;
     }
     if (await this.state.storage.get('created')) {
-      await this.quotaStub('global').fetch('https://scahn.internal/__release');
+      const code = await this.state.storage.get('code');
+      await this.quotaStub('global').fetch(`https://scahn.internal/__release?room=${code}`);
     }
     await this.state.storage.deleteAll();
     this._active = undefined;

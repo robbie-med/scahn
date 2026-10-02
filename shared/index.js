@@ -109,8 +109,10 @@ export const LIMITS = Object.freeze({
   ROOM_EMPTY_TTL_MS: 10 * 60_000,
   /** Room is torn down this long after the last socket drops. */
   ROOM_GRACE_MS: 2 * 60_000,
-  /** Rooms one IP may create per hour. */
-  ROOMS_PER_IP_PER_HOUR: 30,
+  /** Rooms one IP may create per hour. 120, not 30: a display creates one
+   *  room per session, so this is still a flood guard, but 30 was tripped by
+   *  three runs of the integration suite from one address. */
+  ROOMS_PER_IP_PER_HOUR: 120,
   /** Global ceiling on live rooms. */
   MAX_ROOMS: 200,
   /** Max sensors in one room. */

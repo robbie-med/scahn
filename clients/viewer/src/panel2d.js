@@ -230,6 +230,8 @@ export class Panel2D {
     cam.updateMatrixWorld();
 
     this._view = { cx, cy, halfW, halfH };
+    /** Public copy of the frustum, for the Volume engine's inverse mapping. */
+    this.view = this._view;
 
     // Transducer apex in panel UV, for the shadow march. A sector converges on
     // a point behind its face; a linear array has no apex and parallel rays.
