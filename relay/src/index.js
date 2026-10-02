@@ -276,6 +276,15 @@ function handleFrame(socket, meta, msg) {
       return;
     }
 
+    case 'freeze': {
+      const room = meta.roomCode ? registry.get(meta.roomCode) : null;
+      if (!room || meta.role !== 'sensor') return;
+      if (room.activeSensorId !== meta.sensorId) return;
+      room.touch();
+      toDisplays(room, { type: 'freeze', on: msg.on });
+      return;
+    }
+
     case 'state': {
       // The display's authoritative probe state, fanned out to every phone so
       // their controls mirror the screen. Displays only.

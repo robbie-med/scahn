@@ -14,7 +14,7 @@
 
 import { applyStatic, initLangToggle, t, tPreset } from '@scahn/protocol/i18n';
 import {
-  DEPTH_LIMITS, LIMITS, MODES, PRESETS, PRESET_LABELS, PRESET_PROBE, PROBE_TYPES,
+  DEPTH_LIMITS, LIMITS, MODES, PRESETS, PRESET_LABELS, PRESET_PROBE, PROBE_TYPES, TUTORIALS,
   clampDepth,
 } from '@scahn/protocol';
 import { OrientationSource, guessDeviceName } from './orientation.js';
@@ -65,8 +65,10 @@ const state = {
   pendingPreset: null,
   /** Window the display says it is showing (null = free placement). */
   shownPreset: null,
+  /** Display is frozen (echoed); we can only ask to toggle it while driving. */
+  frozen: false,
   /** When each thing was last changed HERE, for the echo guard. */
-  touched: { surf: 0, probe: 0, depth: 0, mode: 0, preset: 0 },
+  touched: { surf: 0, probe: 0, depth: 0, mode: 0, preset: 0, freeze: 0 },
 };
 
 // Pre-fill from the QR deep link (?room=418306) so scanning lands paired.
@@ -155,6 +157,46 @@ function paintControl() {
   statePill.textContent = t(state.driving ? 'phone.youAreDriving' : 'phone.viewingOnly');
   statePill.classList.toggle('driving', state.driving);
   claimBtn.classList.toggle('hidden', state.driving);
+  paintFreeze();
+}
+
+/** Freeze is the display's state; only the driver may change it. */
+function paintFreeze() {
+  const b = $('freeze');
+  b.textContent = t(state.frozen ? 'phone.unfreeze' : 'phone.freeze');
+  b.setAttribute('aria-pressed', String(state.frozen));
+  b.disabled = !state.driving;
+}
+
+$('freeze').addEventListener('click', () => {
+  if (!state.driving) return;
+  state.frozen = !state.frozen;
+  state.touched.freeze = Date.now();
+  link?.send({ type: 'freeze', on: state.frozen });
+  paintFreeze();
+});
+
+/** Readouts the display measured; the phone only lists them. */
+function renderCalipers(list) {
+  const host = $('calipers');
+  host.innerHTML = '';
+  $('calipers-group').classList.toggle('hidden', list.length === 0);
+  for (const c of list) {
+    const cm = Math.hypot(c.a[0] - c.b[0], c.a[1] - c.b[1], c.a[2] - c.b[2]) * 100;
+    const row = document.createElement('div');
+    row.innerHTML = '<span></span>';
+    row.firstChild.textContent = `${c.id}  ${cm.toFixed(1)} cm`;
+    host.appendChild(row);
+  }
+}
+
+/** A link to the tutorial for the window on screen, opened on the phone. */
+function paintTutorial() {
+  const a = $('tutorial');
+  const tut = state.shownPreset ? TUTORIALS[state.shownPreset] : null;
+  if (!tut) { a.classList.add('hidden'); return; }
+  a.href = tut.pocus101 ?? Object.values(tut)[0];
+  a.classList.remove('hidden');
 }
 
 /** Take the display's word for it, except where we changed it ourselves just
@@ -172,6 +214,10 @@ function adoptState(msg) {
   }
   if (msg.mode && stale('mode')) state.mode = msg.mode;
   if ('preset' in msg && stale('preset')) state.shownPreset = msg.preset;
+  if ('frozen' in msg && stale('freeze')) state.frozen = !!msg.frozen;
+  if (Array.isArray(msg.calipers)) renderCalipers(msg.calipers);
+  paintFreeze();
+  paintTutorial();
   repaintPresets();
   repaintProbes();
   repaintModes();
@@ -321,6 +367,7 @@ const repaintPresets = chips(
     state.touched.probe = Date.now();
     repaintProbes();
     renderDepth();
+    paintTutorial();
   },
   (id) => id === state.shownPreset,
 );
@@ -482,4 +529,5 @@ initLangToggle($('lang-toggle'), () => {
   }
   paintControl();
   renderDepth();
+  paintTutorial();
 });

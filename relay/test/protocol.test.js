@@ -265,6 +265,44 @@ describe('state echo', () => {
   });
 });
 
+describe('freeze', () => {
+  it('forwards the driving phone\'s freeze to displays and drops a viewer\'s', async () => {
+    const display = await open({ role: 'display' });
+    send(display, { type: 'create' });
+    const { room } = await until(display, (m) => m.type === 'created');
+    const driver = await open({ role: 'sensor', room });
+    send(driver, { type: 'join', role: 'sensor', room, name: 'driver' });
+    await until(driver, (m) => m.type === 'joined');
+    const viewer = await open({ role: 'sensor', room });
+    send(viewer, { type: 'join', role: 'sensor', room, name: 'viewer' });
+    await until(viewer, (m) => m.type === 'joined');
+
+    send(viewer, { type: 'freeze', on: true });
+    await sleep(150);
+    assert.equal(display.inbox.filter((m) => m.type === 'freeze').length, 0, 'a viewing-only phone cannot freeze');
+    send(driver, { type: 'freeze', on: true });
+    const fr = await until(display, (m) => m.type === 'freeze');
+    assert.equal(fr.on, true);
+    send(driver, { type: 'freeze', on: 'yes' });
+    assert.equal((await until(driver, (m) => m.type === 'error')).code, 'bad_frame');
+  });
+
+  it('echoes frozen and calipers in a state frame', async () => {
+    const display = await open({ role: 'display' });
+    send(display, { type: 'create' });
+    const { room } = await until(display, (m) => m.type === 'created');
+    const phone = await open({ role: 'sensor', room });
+    send(phone, { type: 'join', role: 'sensor', room, name: 'p' });
+    await until(phone, (m) => m.type === 'joined');
+    send(display, { type: 'state', frozen: true, calipers: [{ id: 'A', a: [0, 0, 0], b: [0.01, 0.02, 0.03] }] });
+    const st = await until(phone, (m) => m.type === 'state');
+    assert.equal(st.frozen, true);
+    assert.equal(st.calipers[0].id, 'A');
+    send(display, { type: 'state', calipers: [{ id: 'A', a: [0, 0], b: [0, 0, 0] }] });
+    assert.equal((await until(display, (m) => m.type === 'error')).code, 'bad_frame');
+  });
+});
+
 describe('heartbeat', () => {
   it('answers the byte-exact client ping with a pong', async () => {
     const ws = await open({ role: 'display' });

@@ -167,6 +167,19 @@ blender --background --factory-startup --python pipeline/voxelize.py -- \
   clients/viewer/public/models/bodyparts3d.glb clients/viewer/public/models/bodyparts3d 1.5
 ```
 
+### Freeze, calipers, image export, tutorials
+
+`freeze` is a driver-only wire message forwarded like `mode`; the display echoes `frozen` in
+`state`. While frozen `onOrient` applies only `probe` and `depth`. Calipers (`calipers.js`)
+are WORLD-space segments: placed by clicking the panel overlay (`Panel2D.unmap` is the
+inverse of `_map`, and `overlayToWorld` refreshes the probe transform before mapping so a
+click in the same task as a preset change cannot use a stale matrix), drawn on the overlay
+only while both ends are within 2 mm of the plane, and drawn in 3D on `LAYER_3D` without
+depth test. They ride the `state` echo as `calipers`. `export.js` composites the WebGL
+canvas, the rasterised overlay and a footer into a PNG; `TUTORIALS` in `shared/index.js`
+maps windows to POCUS 101 and POCUS Atlas pages (both sites allow framing; re-check the
+headers if a page comes up blank).
+
 ### Capping is the part that makes or breaks it (`capping.js`)
 
 `side: DoubleSide` does **not** produce a solid cross-section; clipping discards fragments, so

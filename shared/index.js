@@ -15,6 +15,7 @@ export const CLIENT_MSG_TYPES = Object.freeze([
   'claim',
   'orient',
   'mode',
+  'freeze',
   'state',
   'ping',
   'pong',
@@ -27,6 +28,7 @@ export const SERVER_MSG_TYPES = Object.freeze([
   'roster',
   'orient',
   'mode',
+  'freeze',
   'state',
   'ping',
   'pong',
@@ -60,6 +62,10 @@ export const PRESETS = Object.freeze([
 ]);
 
 export const MODES = Object.freeze({ RAY: 1, CUT: 2, GHOST: 3 });
+
+/** Calipers on the display, lettered A-D as machines do. */
+export const MAX_CALIPERS = 4;
+export const CALIPER_IDS = Object.freeze(['A', 'B', 'C', 'D']);
 
 /**
  * Selectable imaging depth per transducer, in metres. Ranges follow what the
@@ -205,6 +211,12 @@ export function validateClientFrame(msg) {
       if (![MODES.RAY, MODES.CUT, MODES.GHOST].includes(msg.mode)) return ERRORS.BAD_FRAME;
       return null;
 
+    case 'freeze':
+      // Driving phone -> display: stop applying the stream (a real machine's
+      // most-used key). Forwarded like `mode`; the display echoes `frozen`.
+      if (typeof msg.on !== 'boolean') return ERRORS.BAD_FRAME;
+      return null;
+
     case 'state':
       // Display -> phones. The display is the authority on where the probe is
       // and what it is doing; it echoes that so every phone's controls show the
@@ -223,6 +235,19 @@ export function validateClientFrame(msg) {
       }
       if (msg.mode != null && ![MODES.RAY, MODES.CUT, MODES.GHOST].includes(msg.mode)) {
         return ERRORS.BAD_FRAME;
+      }
+      if (msg.frozen != null && typeof msg.frozen !== 'boolean') return ERRORS.BAD_FRAME;
+      // Calipers: up to MAX_CALIPERS world-space segments the display measured,
+      // echoed so phones can list the readouts. The display owns them.
+      if (msg.calipers != null) {
+        if (!Array.isArray(msg.calipers) || msg.calipers.length > MAX_CALIPERS) return ERRORS.BAD_FRAME;
+        for (const c of msg.calipers) {
+          if (!c || typeof c !== 'object') return ERRORS.BAD_FRAME;
+          if (typeof c.id !== 'string' || c.id.length > 2) return ERRORS.BAD_FRAME;
+          for (const k of ['a', 'b']) {
+            if (!Array.isArray(c[k]) || c[k].length !== 3 || !c[k].every(isFiniteNum)) return ERRORS.BAD_FRAME;
+          }
+        }
       }
       return null;
 
@@ -247,6 +272,53 @@ export const PRESET_LABELS = Object.freeze({
   'luq-splenorenal': 'LUQ / Splenorenal',
   'suprapubic': 'Suprapubic',
   'aorta-transverse': 'Aorta (Transverse)',
+});
+
+/**
+ * Tutorials per window, from two open teaching sites. URLs verified
+ * 2026-10-01 (HTTP 200, and neither site sends X-Frame-Options or a
+ * frame-ancestors policy, so the display can show them in a side panel;
+ * the phone opens them in a new tab). Keep both sources: POCUS 101 is a
+ * step-by-step guide, The POCUS Atlas is an image library.
+ */
+export const TUTORIALS = Object.freeze({
+  'subxiphoid': {
+    pocus101: 'https://www.pocus101.com/cardiac-ultrasound-echocardiography-made-easy-step-by-step-guide/',
+    tpa: 'https://www.thepocusatlas.com/echocardiography',
+  },
+  'parasternal-long': {
+    pocus101: 'https://www.pocus101.com/cardiac-ultrasound-echocardiography-made-easy-step-by-step-guide/',
+    tpa: 'https://www.thepocusatlas.com/echocardiography',
+  },
+  'parasternal-short': {
+    pocus101: 'https://www.pocus101.com/cardiac-ultrasound-echocardiography-made-easy-step-by-step-guide/',
+    tpa: 'https://www.thepocusatlas.com/echocardiography',
+  },
+  'apical-four-chamber': {
+    pocus101: 'https://www.pocus101.com/cardiac-ultrasound-echocardiography-made-easy-step-by-step-guide/',
+    tpa: 'https://www.thepocusatlas.com/echocardiography',
+  },
+  'ruq-morison': {
+    pocus101: 'https://www.pocus101.com/efast-ultrasound-exam-made-easy-step-by-step-guide/',
+    tpa: 'https://www.thepocusatlas.com/trauma',
+  },
+  'luq-splenorenal': {
+    pocus101: 'https://www.pocus101.com/efast-ultrasound-exam-made-easy-step-by-step-guide/',
+    tpa: 'https://www.thepocusatlas.com/trauma',
+  },
+  'suprapubic': {
+    pocus101: 'https://www.pocus101.com/bladder-ultrasound-made-easy-step-by-step-guide/',
+    tpa: 'https://www.thepocusatlas.com/trauma',
+  },
+  'aorta-transverse': {
+    pocus101: 'https://www.pocus101.com/aorta-ultrasound-made-easy-step-by-step-guide/',
+    tpa: 'https://www.thepocusatlas.com/aorta',
+  },
+});
+
+export const TUTORIAL_SOURCES = Object.freeze({
+  pocus101: 'POCUS 101',
+  tpa: 'The POCUS Atlas',
 });
 
 /** Transducer that each window is normally performed with (spec section 9, P6). */

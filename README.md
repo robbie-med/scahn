@@ -45,6 +45,16 @@ can press **Take control** for an explicit handoff, which is the point: demo the
 window yourself, hand it to the learner, take it back, without re-pairing. If
 the driving phone leaves for good, the next phone to join takes over.
 
+On the display: **Freeze** (or `F`) holds the frame; **Caliper** (`C`) then
+two clicks on the image measures a distance, which also appears as a segment
+inside the anatomy in ghost mode (`X` clears); **Save image** (`S`) writes a
+PNG with the window, transducer, depth and attribution burned in; **Learn**
+opens the POCUS 101 or POCUS Atlas tutorial for the current window beside
+the image. The phone can freeze, lists the caliper readouts, and links the
+tutorial. An **Engine** chip switches the cross-section between stencil
+capping of the meshes and a sampled label volume (faster, no watertightness
+requirement, voxel edges).
+
 **Recenter is not optional.** Magnetometer heading drifts badly near hospital
 beds, metal furniture and monitors. Press it whenever the probe feels off-axis.
 

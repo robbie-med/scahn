@@ -282,6 +282,11 @@ export class Room {
         return this.toDisplays(enc({ type: 'mode', mode: msg.mode }));
       }
 
+      case 'freeze': {
+        if (att.role !== 'sensor' || att.id !== (await this.active())) return;
+        return this.toDisplays(enc({ type: 'freeze', on: msg.on }));
+      }
+
       case 'state': {
         // The display's authoritative probe state, fanned out to every phone
         // so their controls mirror the screen. Displays only; no storage.

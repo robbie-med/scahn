@@ -1,8 +1,10 @@
 # ROADMAP
 
-Status: **planned, not started.** Everything below is design; nothing in the
-shipped viewer does any of it yet. This file exists so the first implementation
-session does not re-derive the constraints the renderer imposes. Two parts:
+Status (2026-10-01): **Part A is built** (freeze, calipers, image export,
+tutorial links; probe models pending the asset conversion). **Part C ships as
+a prototype** behind the Engine chip. **Parts B and D are planned, not
+started.** This file exists so the first implementation session does not
+re-derive the constraints the renderer imposes. Parts:
 
 - **Part A — freeze, calipers, image export.** Small, no pipeline work, and
   the first thing a teacher asks for. Do this first.
@@ -16,7 +18,13 @@ you will see*, not physics.
 
 ---
 
-# Part A — freeze, calipers, image export (≈ 2 days)
+# Part A — freeze, calipers, image export — BUILT
+
+What shipped differs from the plan below in small ways: the freeze key is
+`F` on the display and a button on the phone (driver only); calipers are
+placed on the display (click two points; `C` toggles placement, `X` clears)
+and listed on the phone from the `state` echo; `S` saves the image. The
+tutorial drawer is wide-layout only and opens a new tab on narrow screens.
 
 ## A1. Freeze (½ day)
 
@@ -111,14 +119,18 @@ fall back to opening a new tab (which always works) when a page refuses.
 - Attribution: both sites are credited in the About panel; the iframe shows
   their page unmodified.
 
-## A5. Transducer models from POCUS Collective (¼ day, pending licence)
+## A5. Transducer models from POCUS Collective
 
-`pocuscollective.com` publishes 3D probe models. The current probe is a
-parametric cylinder with a marker notch. If their models are openly
-licensed, add a per-transducer mesh (curvilinear, phased, linear) under
-`clients/viewer/public/models/probes/` and swap `createProbeModel` to load
-it, keeping the notch convention (local +X = marker). Record the licence in
-`credits.js` before anything is shipped; if it is not stated, ask them.
+Checked 2026-10-01: the site's Legal page licenses all hosted content
+**CC BY-NC 4.0** unless otherwise noted; the "Ultrasound Probes STLs" entry
+(Ben Smith, Core Ultrasound; phased, curvilinear and linear) is hosted in
+full with no other note, so it is CC BY-NC 4.0 with credit to the author and
+to The POCUS Collective. NonCommercial is already a project constraint
+through the pelvis model, so this adds no new restriction; the probes ship
+as their own GLBs, never merged with the BodyParts3D model (CC BY-SA).
+Conversion: STL → Blender → metres, footprint at the origin, handle along
+local +Y, marker side on local +X, Draco GLB per transducer; the parametric
+probe stays as the fallback and the yellow notch is kept.
 
 Order inside Part A: A1, then A3 (it needs nothing else), then A2, then A4.
 
@@ -384,14 +396,52 @@ What is still open before it can replace the mesh engine: edge quality
 per-organ distance-field refinement above), and the preset sweep has only
 been run on the mesh engine.
 
-## Suggested path
+## Plan for finishing the volume engine (≈ 3 days) — NOT STARTED
 
-Build the label-volume panel beside the current one behind a Debug toggle
-(≈ 3 days: a voxeliser in the pipeline, `panel3d.js` with the slice and shadow
-shader, the 3D cut quad). Compare pixel-for-pixel on the eight windows. If it
-holds up — and the argument above says it will — retire `capping.js` and the
-repair tiers, then do Part B on the volume. Part A (freeze, calipers, image
-export) is independent of this choice and should not wait for it.
+1. **Sub-voxel edges** (1½ days). Per organ, a signed-distance grid in the
+   organ's own bounding box at 3 mm (`pipeline/voxelize.py --sdf`, computed
+   from the same ray casts: distance to the nearest surface crossing along
+   the three axes, then a Euclidean distance transform in numpy), packed
+   into one 3D texture atlas with a per-label offset table. In the shader:
+   look up the label as now, then refine the boundary by sampling the
+   organ's SDF with trilinear filtering and treating the 0 crossing as the
+   edge; where two labels meet, the one with the smaller distance wins.
+   Acceptance: the mesh and volume panels agree to within one voxel on the
+   organ silhouettes on all eight windows, measured as the symmetric
+   difference of each organ's pixel mask.
+2. **Re-run the window sweep on the volume engine** (½ day) with the id-grey
+   harness from `torso.js`; keep the mesh engine's values unless a window
+   moves by more than 0.02 in u or v, and record both.
+3. **Retire capping** (1 day). Make Volume the default engine, keep Mesh
+   selectable for one release, then delete `capping.js`, the stencil
+   layers, the bone-mask pass and the repair tiers in the pipeline
+   (`bodyparts3d.py` keeps weld + decimate + the heart fuse; `pipeline.py`
+   shrinks to the lumen derivation). The pelvis pipeline stops needing
+   `kvh_repair.py`'s tubes once the volume comes from the slice stack.
+4. **Pelvis straight from the slices** (½ day, when the stack is available):
+   `kvh_pelvis.py --volume` writes the label volume directly from the
+   segmented BMPs at 1 mm, bypassing every mesh step.
+
+## Plan for Part B on the volume engine — NOT STARTED
+
+Everything in Part B above holds, with these substitutions once the volume
+engine is the renderer:
+
+- Deformation is `sample(p − d(p, φ))` in `volume.js`'s `labelAtWorld`,
+  with `d` the heart field from §2 evaluated in world space. One place, both
+  views, no stencil bookkeeping, no bounding-box inflation.
+- The 3D surfaces still deform through `onBeforeCompile` on the mesh
+  materials (forward field); the small inconsistency between forward and
+  backward mapping is below a voxel at the amplitudes in §2.
+- Doppler needs no per-fragment flow lookup machinery beyond what the
+  label gives: `dynamics.json` carries a flow direction per label (or per
+  centreline bin for long vessels, as a second small 3D texture of
+  direction ids), and the colour-box shader samples it where it samples the
+  label.
+- Order: §1 clock and §2 heart (2 days), §4 pipeline data (1 day), §3
+  vessels (1 day), §5 colour then PW Doppler (3–4 days), re-tune cardiac
+  windows at φ = 0 (½ day). Roughly 8 days, the same as before; the saving
+  is in risk, not calendar.
 
 ## Engine selector
 

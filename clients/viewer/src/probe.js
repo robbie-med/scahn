@@ -155,8 +155,56 @@ export function disposeBeam(group) {
 }
 
 /**
+ * Real transducer meshes (ROADMAP A5): one Draco GLB per type under
+ * `models/probes/`, from The POCUS Collective ("Ultrasound Probes STLs", Ben
+ * Smith / Core Ultrasound, CC BY-NC 4.0, credited in credits.js). Converted
+ * by pipeline/probes.py into the probe frame: metres, footprint centred on the
+ * origin, handle along local +Y, marker side on local +X. Resolves to null
+ * when the file is missing or fails, in which case the parametric body stays.
+ */
+const PROBE_MODEL_URLS = Object.freeze({
+  curvilinear: 'models/probes/curvilinear.glb',
+  phased: 'models/probes/phased.glb',
+  linear: 'models/probes/linear.glb',
+});
+const probeModelCache = new Map();
+
+export async function loadProbeModel(type) {
+  const url = PROBE_MODEL_URLS[type];
+  if (!url) return null;
+  if (probeModelCache.has(type)) return probeModelCache.get(type);
+  const promise = (async () => {
+    try {
+      const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+      const { DRACOLoader } = await import('three/examples/jsm/loaders/DRACOLoader.js');
+      const loader = new GLTFLoader();
+      const draco = new DRACOLoader();
+      draco.setDecoderPath('draco/');
+      loader.setDRACOLoader(draco);
+      const gltf = await loader.loadAsync(url);
+      const group = new THREE.Group();
+      group.name = `probe-model-${type}`;
+      gltf.scene.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = new THREE.MeshStandardMaterial({ color: 0x3a434f, roughness: 0.6, metalness: 0.05 });
+        o.castShadow = false;
+      });
+      group.add(gltf.scene);
+      return group;
+    } catch (err) {
+      console.warn(`probe model ${type} unavailable:`, err?.message ?? err);
+      return null;
+    }
+  })();
+  probeModelCache.set(type, promise);
+  return promise;
+}
+
+/**
  * Transducer body: a cylindrical handle on +Y with the footprint at the origin,
  * and a small marker ridge on local +X (the orientation notch on a real probe).
+ * The parametric fallback, and the carrier of the marker notch even when a
+ * real mesh is loaded (the notch is the convention, the mesh is the look).
  */
 export function createProbeModel() {
   const group = new THREE.Group();
@@ -167,6 +215,7 @@ export function createProbeModel() {
     new THREE.MeshStandardMaterial({ color: 0x2f3742, roughness: 0.55 }),
   );
   body.position.y = 0.0375 + 0.008;
+  body.name = 'probe-parametric';
   group.add(body);
 
   const face = new THREE.Mesh(
@@ -174,6 +223,7 @@ export function createProbeModel() {
     new THREE.MeshStandardMaterial({ color: 0xd7dee7, roughness: 0.3 }),
   );
   face.position.y = 0.008;
+  face.name = 'probe-parametric';
   group.add(face);
 
   // Orientation marker — local +X. Whichever side this is on is the side the

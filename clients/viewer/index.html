@@ -30,7 +30,15 @@
         <div class="row">
           <div id="window-name" class="badge">No window</div>
           <div id="mode-name" class="badge">Mode 1 — Ray</div>
+          <div id="frozen-badge" class="badge frozen hidden" data-i18n="viewer.frozen">FROZEN</div>
           <button id="about-btn" type="button" data-i18n-title="viewer.aboutTitle">i</button>
+        </div>
+        <div class="chips tools">
+          <button id="freeze-btn" type="button" aria-pressed="false" data-i18n="viewer.freeze">Freeze</button>
+          <button id="caliper-btn" type="button" aria-pressed="false" data-i18n="viewer.caliper">Caliper</button>
+          <button id="caliper-clear" type="button" data-i18n="viewer.clearCalipers">Clear</button>
+          <button id="save-btn" type="button" data-i18n="viewer.saveImage">Save image</button>
+          <button id="learn-btn" type="button" data-i18n="viewer.learn">Learn</button>
         </div>
         <div id="model-picker">
           <div id="model-chips" class="chips"></div>
@@ -68,6 +76,17 @@
         <div id="roster"></div>
       </aside>
 
+      <!-- Tutorial drawer: an iframe beside the panels (ROADMAP A4). layout()
+           shrinks the viewports while it is open, so it never covers the image. -->
+      <aside id="learn" class="hidden">
+        <div class="learn-bar">
+          <span id="learn-title"></span>
+          <a id="learn-tab" href="#" target="_blank" rel="noopener noreferrer" data-i18n="viewer.openTab">Open in new tab</a>
+          <button id="learn-close" type="button" data-i18n="viewer.close">Close</button>
+        </div>
+        <iframe id="learn-frame" title="Tutorial" sandbox="allow-scripts allow-same-origin allow-popups" referrerpolicy="no-referrer" loading="lazy"></iframe>
+      </aside>
+
       <details id="debug">
         <summary data-i18n="viewer.debug">Debug</summary>
         <div class="row"><label><span data-i18n="viewer.smoothing">Smoothing</span> <input id="smooth" type="range" min="0.02" max="1" step="0.01" value="0.25" /></label><span id="smooth-val">0.25</span></div>
@@ -75,6 +94,7 @@
         <div class="row"><label><input id="invert-clip" type="checkbox" /> <span data-i18n="viewer.invertClip">Invert clip side</span></label></div>
         <div class="row"><label><input id="show-beam" type="checkbox" checked /> <span data-i18n="viewer.beamSector">Beam sector</span></label></div>
         <div class="row"><label><input id="show-fiducials" type="checkbox" /> <span data-i18n="viewer.fiducials">Fiducials</span></label></div>
+        <div class="row"><label><input id="save-panel-only" type="checkbox" /> <span data-i18n="viewer.panelOnly">Save panel only</span></label></div>
         <dl id="stats"></dl>
       </details>
     </div>

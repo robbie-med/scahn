@@ -97,6 +97,30 @@ export const MODELS_CREDITS = [
   },
 ];
 
+export const PROBE_CREDITS = {
+  title: 'Ultrasound Probes STLs (transducer models)',
+  author: 'Ben Smith, Core Ultrasound — hosted by The POCUS Collective',
+  authorUrl: 'https://www.coreultrasound.com',
+  source: 'https://pocuscollective.com/3d-printing',
+  licence: 'CC BY-NC 4.0',
+  licenceUrl: 'https://creativecommons.org/licenses/by-nc/4.0/',
+  used: 'The three transducer bodies (curvilinear, phased array, linear) drawn '
+      + 'on the virtual probe. Converted to metres and re-oriented into the '
+      + 'probe frame; the orientation-marker notch is added by the viewer.',
+  usedKo: '가상 탐촉자에 표시되는 세 가지 탐촉자 본체(컨벡스, 위상배열, 리니어)에 '
+        + '사용했습니다. 미터 단위로 변환하고 탐촉자 좌표계로 재정렬했으며, 방향 '
+        + '표식 돌기는 뷰어가 추가합니다.',
+  status: 'ok',
+  note: 'NON-COMMERCIAL, per The POCUS Collective\'s content licence '
+      + '(all hosted content CC BY-NC 4.0 unless otherwise noted). The same '
+      + 'constraint the female pelvis already places on the project.',
+  noteKo: '비영리 전용 — The POCUS Collective의 콘텐츠 라이선스(별도 명시가 없으면 '
+        + '모든 호스팅 콘텐츠는 CC BY-NC 4.0)에 따릅니다. 여성 골반 모델이 이미 '
+        + '프로젝트에 부과한 것과 같은 제약입니다.',
+};
+
+MODELS_CREDITS.push(PROBE_CREDITS);
+
 export const TOOLS_CREDITS = [
   {
     name: 'Noto Sans Arabic UI',

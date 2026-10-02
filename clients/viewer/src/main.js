@@ -10,7 +10,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { MODES, PRESETS, PRESET_LABELS, PRESET_PROBE } from '@scahn/protocol';
+import { MODES, PRESETS, PRESET_LABELS, PRESET_PROBE, TUTORIALS, TUTORIAL_SOURCES } from '@scahn/protocol';
 import { applyStatic, initLangToggle, t, tPreset } from '@scahn/protocol/i18n';
 
 import { assertHandedness, createFiducials, createRenderer, createScene } from './scene.js';
@@ -19,13 +19,15 @@ import {
   setSkinSurface, surfaceFrame, torsoCircumference, windowsFor,
 } from './torso.js';
 import {
-  BEAM_PROFILES, clampDepth, createBeam, createProbeModel, disposeBeam,
+  BEAM_PROFILES, clampDepth, createBeam, createProbeModel, disposeBeam, loadProbeModel,
 } from './probe.js';
 import { buildOrgans } from './organs.js';
 import { MODELS, loadModel } from './models.js';
 import { CappedOrgan, LAYER_3D, updateScanPlane } from './capping.js';
 import { Panel2D } from './panel2d.js';
 import { VolumeEngine } from './volume.js';
+import { Calipers } from './calipers.js';
+import { imageFilename, saveImage } from './export.js';
 import { ViewerLink } from './net.js';
 import { Stats, phoneUrl, renderQr, renderRoster } from './ui.js';
 import { initAbout, renderAbout } from './about.js';
@@ -282,7 +284,21 @@ async function setModel(id) {
 // prebuilt per type, because depth is continuous and the sector geometry, the
 // 2D frustum and the depth graticule all have to be regenerated together.
 const probe = new THREE.Object3D();
-probe.add(createProbeModel());
+const probeBody = createProbeModel();
+probe.add(probeBody);
+let probeMesh = null;
+
+/** Swap in the real transducer mesh for `type`; the parametric body is the
+ *  fallback while it loads or if it is absent. */
+async function updateProbeMesh(type) {
+  const group = await loadProbeModel(type);
+  if (type !== state.probeType) return; // superseded while loading
+  if (probeMesh) probeBody.remove(probeMesh);
+  probeMesh = group;
+  const parametric = probeBody.children.filter((c) => c.name === 'probe-parametric');
+  for (const c of parametric) c.visible = !group;
+  if (group) probeBody.add(group);
+}
 /** @type {THREE.Group|null} */
 let beam = null;
 scene.add(probe);
@@ -297,6 +313,10 @@ const panel = new Panel2D(document.getElementById('panel-overlay'));
 const volume = new VolumeEngine();
 probe.add(volume.cutQuad);
 
+/** Calipers live in world space and draw in both views (calipers.js). */
+const calipers = new Calipers();
+scene.add(calipers.group);
+
 // ---------------------------------------------------------------------------
 // state
 // ---------------------------------------------------------------------------
@@ -305,6 +325,12 @@ const state = {
   mode: MODES.RAY,
   /** 'mesh' (stencil capping) or 'volume' (label volume). */
   engine: 'mesh',
+  /** Frozen: the stream is received but not applied (ROADMAP A1). */
+  frozen: false,
+  /** Caliper placement mode: the panel overlay takes clicks. */
+  placing: false,
+  /** Probe-local point under the pointer while placing, for the rubber band. */
+  pending: null,
   probeType: 'curvilinear',
   preset: null,
   u: 0.0,
@@ -361,6 +387,7 @@ function setProbeType(name) {
   if (beam && name === state.probeType) return;
   state.probeType = name;
   rebuildBeam();
+  updateProbeMesh(name);
 }
 
 /** Depth is remembered per transducer, as it is on a real machine — switching
@@ -459,6 +486,7 @@ function setMode(mode) {
 
 let rect3d = { x: 0, y: 0, w: 1, h: 1 };
 let rect2d = { x: 0, y: 0, w: 1, h: 1 };
+const learnEl = document.getElementById('learn');
 
 const appEl = document.getElementById('app');
 const bannerEl = document.getElementById('prealpha');
@@ -487,7 +515,12 @@ function layout() {
   }
   renderer.setSize(W, H, false);
 
+  // The tutorial drawer takes the right edge; the viewports share what is
+  // left, so a tutorial never covers the image.
   const narrow = W < 900;
+  const learnOpen = !narrow && !learnEl.classList.contains('hidden');
+  const drawerW = learnOpen ? Math.max(300, Math.round(W * 0.3)) : 0;
+  const Wv = W - drawerW;
   appEl.classList.toggle('narrow', narrow);
   const bannerH = bannerEl.offsetHeight;
   topbarEl.style.top = `${bannerH}px`;
@@ -496,16 +529,16 @@ function layout() {
   const avail = Math.max(H - top, 1);
 
   if (!narrow) {
-    const split = Math.round(W * 0.6);
+    const split = Math.round(Wv * 0.6);
     rect3d = { x: 0, y: top, w: split, h: avail };
-    rect2d = { x: split, y: top, w: W - split, h: avail };
+    rect2d = { x: split, y: top, w: Wv - split, h: avail };
     topbarEl.style.width = `${split}px`;
     debugEl.style.right = `${W - split + 12}px`;
   } else {
     // Narrow: stack, 2D panel on top.
     const panelH = Math.round(avail * 0.42);
-    rect2d = { x: 0, y: top, w: W, h: panelH };
-    rect3d = { x: 0, y: top + panelH, w: W, h: avail - panelH };
+    rect2d = { x: 0, y: top, w: Wv, h: panelH };
+    rect3d = { x: 0, y: top + panelH, w: Wv, h: avail - panelH };
     topbarEl.style.width = '';
     debugEl.style.right = '';
   }
@@ -571,6 +604,8 @@ function renderFrame() {
 
   // The panel frustum first: the volume engine's 3D cut face needs it too.
   panel.update(probe, state.profile);
+  calipers.update3D();
+  panel.drawLive(state.frozen, calipers, probe, state.pending);
   const useVolume = state.engine === 'volume' && volume.ready;
   volume.cutQuad.visible = useVolume && state.mode !== MODES.RAY;
   if (useVolume) volume.update(probe, state.profile, panel.view, showMuscles);
@@ -628,6 +663,8 @@ function publishState(force = false) {
     probe: state.probeType,
     depth: state.depthByType[state.probeType],
     mode: state.mode,
+    frozen: state.frozen,
+    calipers: calipers.toWire(),
   };
   const json = JSON.stringify(snap);
   const now = performance.now();
@@ -688,8 +725,154 @@ document.getElementById('show-qr').addEventListener('click', (e) => {
   e.currentTarget.setAttribute('aria-pressed', String(on));
 });
 
+// --- freeze ------------------------------------------------------------------
+
+const frozenBadge = document.getElementById('frozen-badge');
+const freezeBtn = document.getElementById('freeze-btn');
+
+function setFrozen(on) {
+  state.frozen = !!on;
+  frozenBadge.classList.toggle('hidden', !state.frozen);
+  freezeBtn.setAttribute('aria-pressed', String(state.frozen));
+  if (state.frozen) {
+    // Hold exactly the pose on screen: the smoothing target becomes the
+    // current value so no residual slerp drifts the plane after the key.
+    state.target.copy(state.current);
+  }
+}
+freezeBtn.addEventListener('click', () => setFrozen(!state.frozen));
+
+// --- calipers ------------------------------------------------------------------
+
+const overlay = document.getElementById('panel-overlay');
+const caliperBtn = document.getElementById('caliper-btn');
+
+function setPlacing(on) {
+  state.placing = !!on && !calipers.full;
+  if (!state.placing) {
+    calipers.cancel();
+    state.pending = null;
+  }
+  overlay.classList.toggle('placing', state.placing);
+  caliperBtn.setAttribute('aria-pressed', String(state.placing));
+  caliperBtn.title = state.placing ? t('viewer.caliperHint') : '';
+}
+
+/**
+ * Panel pointer -> world point on the scan plane.
+ *
+ * Mapped against the probe transform and panel frustum as they are NOW, not
+ * as the last frame left them: a preset applied in the same task as a click
+ * otherwise placed the point with a stale matrix, metres from the plane.
+ */
+function overlayToWorld(e) {
+  surfaceFrame(state.u, state.v, frame);
+  probe.position.copy(frame.position);
+  qSpin.setFromAxisAngle(AXIS_Y, state.spin);
+  qTilt.setFromAxisAngle(AXIS_X, state.tilt);
+  qPreset.copy(qSpin).multiply(qTilt);
+  probe.quaternion.copy(frame.quaternion).multiply(qPreset).multiply(state.current);
+  probe.updateMatrixWorld(true);
+  panel.update(probe, state.profile);
+  const r = overlay.getBoundingClientRect();
+  const [lx, ly] = panel.unmap(e.clientX - r.left, e.clientY - r.top);
+  return { local: new THREE.Vector3(lx, ly, 0), world: probe.localToWorld(new THREE.Vector3(lx, ly, 0)) };
+}
+
+overlay.addEventListener('pointerdown', (e) => {
+  if (!state.placing) return;
+  e.preventDefault();
+  const { world } = overlayToWorld(e);
+  calipers.addPoint(world);
+  state.pending = null;
+  if (calipers.full) setPlacing(false);
+});
+overlay.addEventListener('pointermove', (e) => {
+  if (!state.placing || !calipers.placing) return;
+  state.pending = overlayToWorld(e).local;
+});
+caliperBtn.addEventListener('click', () => setPlacing(!state.placing));
+document.getElementById('caliper-clear').addEventListener('click', () => {
+  calipers.clear();
+  setPlacing(false);
+});
+
+// --- save image ------------------------------------------------------------------
+
+const savePanelOnly = document.getElementById('save-panel-only');
+try { savePanelOnly.checked = localStorage.getItem('scahn.savePanelOnly') === '1'; } catch { /* private mode */ }
+savePanelOnly.addEventListener('change', () => {
+  try { localStorage.setItem('scahn.savePanelOnly', savePanelOnly.checked ? '1' : '0'); } catch { /* ignore */ }
+});
+
+async function exportImage() {
+  renderFrame();
+  const windowLabel = state.preset ? tPreset(state.preset) : t('viewer.freePlacement');
+  const depthCm = Math.round((state.profile?.depth ?? 0) * 100);
+  const footer = [
+    `Scahn — ${windowLabel} · ${state.profile?.label ?? state.probeType} · ${depthCm} cm · ${t(`mode.${state.mode}`)} · ${t(state.engine === 'volume' ? 'viewer.engineVolume' : 'viewer.engineMesh')}`,
+    MODELS[modelId].credit ?? t(`viewer.model.${modelId}`),
+    `${new Date().toLocaleString()} · ${t('viewer.prealphaBold')} ${t('viewer.prealphaBody')}`,
+  ];
+  try {
+    return await saveImage({
+      canvas, svg: overlay, rect2d, rect3d,
+      panelOnly: savePanelOnly.checked,
+      footer, filename: imageFilename(state.preset),
+    });
+  } catch (err) {
+    console.error('save image failed', err);
+    return null;
+  }
+}
+document.getElementById('save-btn').addEventListener('click', exportImage);
+
+// --- tutorial drawer ---------------------------------------------------------------
+
+const learnFrame = document.getElementById('learn-frame');
+const learnTitle = document.getElementById('learn-title');
+const learnTab = document.getElementById('learn-tab');
+let learnSource = 'pocus101';
+try { learnSource = localStorage.getItem('scahn.learnSource') || learnSource; } catch { /* ignore */ }
+
+/** Tutorial for the current window from the preferred source, else the other. */
+function tutorialFor(preset) {
+  const t = TUTORIALS[preset];
+  if (!t) return null;
+  const src = t[learnSource] ? learnSource : Object.keys(t)[0];
+  return { src, url: t[src], label: TUTORIAL_SOURCES[src] };
+}
+
+function openLearn(url, title) {
+  learnFrame.src = url;
+  learnTab.href = url;
+  learnTitle.textContent = title;
+  learnEl.classList.remove('hidden');
+  layout();
+}
+function closeLearn() {
+  learnEl.classList.add('hidden');
+  learnFrame.src = 'about:blank';
+  layout();
+}
+document.getElementById('learn-btn').addEventListener('click', () => {
+  if (!learnEl.classList.contains('hidden')) { closeLearn(); return; }
+  const tut = state.preset ? tutorialFor(state.preset) : null;
+  if (!tut) { setModelStatus(t('viewer.noTutorial')); return; }
+  // No room for a drawer beside stacked viewports: a new tab instead.
+  if (appEl.classList.contains('narrow')) { window.open(tut.url, '_blank', 'noopener'); return; }
+  openLearn(tut.url, `${tut.label} — ${tPreset(state.preset)}`);
+});
+document.getElementById('learn-close').addEventListener('click', closeLearn);
+
 window.addEventListener('keydown', (e) => {
+  if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
   if (e.key === '1' || e.key === '2' || e.key === '3') setMode(Number(e.key));
+  else if (e.key === 'f' || e.key === 'F') setFrozen(!state.frozen);
+  else if (e.key === 's' || e.key === 'S') exportImage();
+  else if (e.key === 'c' || e.key === 'C') setPlacing(!state.placing);
+  else if (e.key === 'x' || e.key === 'X') { calipers.clear(); setPlacing(false); }
+  else if (e.key === 'Escape' && state.placing) setPlacing(false);
 });
 
 // ---------------------------------------------------------------------------
@@ -715,6 +898,13 @@ const link = new ViewerLink({
   },
   onOrient(msg) {
     stats.noteOrient(msg);
+    if (state.frozen) {
+      // A frozen frame keeps its plane. Transducer and depth may still change
+      // (they redraw the same plane), as on a real machine; nothing moves.
+      if (msg.probe) setProbeType(msg.probe);
+      if (msg.depth != null && performance.now() > (state.depthLockUntil ?? 0)) setDepth(msg.depth);
+      return;
+    }
     state.target.set(msg.q[0], msg.q[1], msg.q[2], msg.q[3]);
     if (msg.surf) {
       state.u = ((msg.surf[0] % 1) + 1) % 1;
@@ -727,6 +917,7 @@ const link = new ViewerLink({
     if (msg.depth != null && performance.now() > (state.depthLockUntil ?? 0)) setDepth(msg.depth);
   },
   onMode: setMode,
+  onFreeze: setFrozen,
   onStatus(s) {
     document.getElementById('pair-hint').classList.toggle('warn', s !== 'connected');
   },
@@ -772,6 +963,7 @@ window.scahn = {
   renderer, camera3d, controls, scene, fiducials, setMode, applyPreset, setProbeType,
   renderFrame, setModel, setMuscles, frameTorso, get showMuscles() { return showMuscles; },
   volume, setEngine, get engine() { return state.engine; },
+  calipers, setFrozen, setPlacing, exportImage, tutorialFor,
   get modelId() { return modelId; }, torso: () => ({ ...TORSO }), circumference: torsoCircumference,
   windowsFor, rect3d: () => rect3d, rect2d: () => rect2d, THREE,
 };

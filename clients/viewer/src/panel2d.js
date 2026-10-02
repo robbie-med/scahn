@@ -320,6 +320,44 @@ export class Panel2D {
     ];
   }
 
+  /** Panel pixels -> probe-local metres: the inverse of _map. */
+  unmap(px, py) {
+    const { cx, cy, halfW, halfH } = this._view;
+    const ndcX = (px / this.rect.w) * 2 - 1;
+    const ndcY = (1 - py / this.rect.h) * 2 - 1;
+    return [cx - ndcX * halfW, cy + ndcY * halfH];
+  }
+
+  /**
+   * Per-frame overlay additions that must survive _drawDressing's rebuild:
+   * the FROZEN tag and the calipers. Both draw into their own <g>, re-appended
+   * after the dressing when it was rebuilt.
+   */
+  drawLive(frozen, calipers, probe, pending) {
+    if (!this._live || !this.svg.contains(this._live)) {
+      this._live = document.createElementNS(SVG_NS, 'g');
+      this._live.setAttribute('id', 'live');
+      this.svg.appendChild(this._live);
+    }
+    const g = this._live;
+    if (this.svg.lastChild !== g) this.svg.appendChild(g);
+    while (g.firstChild) g.removeChild(g.firstChild);
+    if (frozen) {
+      const t = document.createElementNS(SVG_NS, 'text');
+      t.setAttribute('x', String(this.rect.w / 2));
+      t.setAttribute('y', '20');
+      t.setAttribute('text-anchor', 'middle');
+      t.setAttribute('fill', '#5fb3ff');
+      t.setAttribute('font-size', '12');
+      t.setAttribute('font-weight', '700');
+      t.setAttribute('font-family', 'ui-sans-serif, system-ui, sans-serif');
+      t.setAttribute('letter-spacing', '0.12em');
+      t.textContent = 'FROZEN';
+      g.appendChild(t);
+    }
+    if (calipers) calipers.draw2D(this.svg, probe, (lx, ly) => this._map(lx, ly), pending);
+  }
+
   _drawDressing(profile) {
     const { w, h } = this.rect;
     const svg = this.svg;

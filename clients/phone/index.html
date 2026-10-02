@@ -39,6 +39,7 @@
       </header>
 
       <button id="recenter" class="primary big" data-i18n="phone.recenter">Recenter</button>
+      <button id="freeze" class="ghost" data-i18n="phone.freeze" aria-pressed="false">Freeze</button>
       <button id="claim" class="ghost hidden" data-i18n="phone.takeControl">Take control</button>
 
       <div class="group">
@@ -67,6 +68,12 @@
       <div class="group">
         <div class="group-label" data-i18n="phone.window">Window</div>
         <div id="presets" class="chips"></div>
+        <a id="tutorial" class="tutorial hidden" href="#" target="_blank" rel="noopener noreferrer" data-i18n="phone.tutorial">Tutorial ↗</a>
+      </div>
+
+      <div id="calipers-group" class="group hidden">
+        <div class="group-label" data-i18n="phone.calipers">Calipers</div>
+        <div id="calipers" class="calipers"></div>
       </div>
 
       <div class="group">
